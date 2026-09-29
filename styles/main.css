@@ -3169,3 +3169,118 @@ a.btn-ioc-lookup:hover {
   font-size: 11px;
   margin-left: 0.35rem;
 }
+
+
+/* ===== HTML PREVIEW ===== */
+.preview-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.preview-bar .preview-note {
+  margin: 0;
+}
+.preview-stats {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--text-secondary);
+}
+.preview-heading,
+.preview-empty {
+  font-size: 12px;
+  color: var(--yellow);
+  margin: 0 0 0.5rem;
+}
+.preview-empty {
+  color: var(--text-muted);
+}
+.preview-forward {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 12px;
+  color: var(--text);
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.625rem;
+  border: 1px solid var(--accent-border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent-bg);
+}
+/* The frame can be dragged taller, or expanded to most of the screen. */
+.preview-frame-wrap {
+  resize: vertical;
+  overflow: hidden;
+  height: 520px;
+  min-height: 200px;
+  max-height: 90vh;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: #fff;
+}
+.preview-frame-wrap.expanded {
+  height: 85vh;
+}
+.preview-frame-wrap .html-preview {
+  height: 100%;
+  border: 0;
+  border-radius: 0;
+  display: block;
+}
+
+/* ===== HTML ATTACHMENT FINDINGS ===== */
+.att-findings {
+  margin-top: 0.5rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  font-size: 12px;
+}
+.att-findings-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 0.25rem;
+}
+.att-findings ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.att-findings li {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.att-findings li.bad { color: var(--red); }
+.att-findings li.warn { color: var(--yellow); }
+.att-preview {
+  margin-top: 0.5rem;
+}
+.att-preview > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  word-break: normal;
+}
+.att-preview .html-preview {
+  height: 420px;
+  margin-top: 0.4rem;
+}
+.att-open {
+  margin-top: 0.5rem;
+}
+@media (max-width: 768px) {
+  .preview-frame-wrap {
+    height: 420px;
+  }
+  .att-preview > summary {
+    min-height: 40px;
+  }
+}

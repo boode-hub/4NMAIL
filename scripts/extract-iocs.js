@@ -11,7 +11,8 @@ import {
 } from "./ip-utils.js";
 import { unwrapRedirect } from "./url-decode.js";
 import { lookalikeOf } from "./analyze-identity.js";
-import { inspectAttachment } from "./file-type.js";
+import { inspectAttachment, extensionOf } from "./file-type.js";
+import { inspectHtml } from "./html-inspect.js";
 
 // Known URL shorteners
 const URL_SHORTENERS = [
@@ -121,6 +122,9 @@ export function extractIOCs(headers, body) {
   if (body) {
     extractFromBody(body, iocs);
   }
+
+  // What HTML in the message would do if opened — read, never run.
+  inspectHtmlContent(iocs, body);
 
   addUnwrappedDestinations(iocs);
   collectDomains(iocs, headers);
@@ -266,6 +270,76 @@ function extractFromBody(body, iocs) {
   }
 }
 
+
+// Destination kinds already covered by ordinary link and image extraction.
+const ALREADY_EXTRACTED = new Set(["link", "image", "stylesheet or resource"]);
+const HTML_EXTENSIONS = new Set(["htm", "html", "shtml", "xhtml", "svg", "hta", "mht", "mhtml"]);
+
+/**
+ * HTML attachments and the HTML body, read statically: where a page would send
+ * what the victim types, and what files it carries inside itself.
+ *
+ * Found destinations become URL indicators of their own; files hidden in a
+ * page become attachments of their own, so they are hashed, typed, flagged and
+ * offered for lookup exactly like a real attachment.
+ */
+function inspectHtmlContent(iocs, body) {
+  if (!body) return;
+
+  const addDestinations = (found, sourceLabel, passwordForm) => {
+    for (const d of found.destinations) {
+      if (ALREADY_EXTRACTED.has(d.kind) && !d.via) continue;
+      iocs.urls.push({
+        value: d.url,
+        source: `${sourceLabel} (${d.kind}${d.via ? `, ${d.via}` : ""})`,
+        isMismatch: false,
+        exfil: d.exfil || null,
+        credentialTarget: passwordForm && ["form target", "fetch", "XMLHttpRequest", "jQuery request", "beacon", "request URL"].includes(d.kind),
+      });
+    }
+  };
+
+  if (body.html) {
+    const found = inspectHtml(body.html, { name: "message" });
+    iocs.bodyFindings = {
+      passwordForm: found.passwordForm,
+      exfil: found.exfil,
+      hiddenLayers: found.hiddenLayers,
+    };
+    addDestinations(found, "Message body", found.passwordForm);
+  }
+
+  // Snapshot: payloads pushed below are inspected by the file checks, not here.
+  for (const att of [...iocs.attachments]) {
+    const ext = extensionOf(att.value);
+    const isHtml = /html|svg|xhtml/i.test(att.contentType || "") || HTML_EXTENSIONS.has(ext);
+    if (!isHtml || !att.bytes?.length) continue;
+
+    const text = new TextDecoder("utf-8", { fatal: false }).decode(att.bytes);
+    const found = inspectHtml(text, { name: att.value || "attachment" });
+    att.htmlFindings = {
+      passwordForm: found.passwordForm,
+      exfil: found.exfil,
+      destinations: found.destinations.filter((d) => !ALREADY_EXTRACTED.has(d.kind) || d.via || d.exfil).length,
+      payloads: found.payloads.map((p) => ({ name: p.name, type: p.type, size: p.bytes.length, how: p.how })),
+      savedAs: found.savedAs,
+      hiddenLayers: found.hiddenLayers,
+    };
+    addDestinations(found, `Inside ${att.value}`, found.passwordForm);
+
+    for (const p of found.payloads) {
+      iocs.attachments.push({
+        value: p.name,
+        contentType: p.type,
+        size: p.bytes.length,
+        source: `Hidden inside ${att.value}`,
+        inline: false,
+        embeddedIn: att.value,
+        bytes: p.bytes,
+      });
+    }
+  }
+}
 
 /**
  * A link rewritten by Safe Links or Proofpoint shows only the gateway's host,
@@ -419,6 +493,23 @@ function deduplicateAndFlag(iocs) {
         });
       }
 
+      if (url.exfil) {
+        url.riskFlags.push({ type: "high", label: `Exfiltration: ${url.exfil}` });
+        url.risks.push({
+          type: "exfil-endpoint",
+          level: "high",
+          message: `Stolen data would be posted to a ${url.exfil}`,
+        });
+      }
+      if (url.credentialTarget) {
+        url.riskFlags.push({ type: "high", label: "Receives passwords" });
+        url.risks.push({
+          type: "credential-form",
+          level: "high",
+          message: "A password form sends what is typed here",
+        });
+      }
+
       // Check for mismatched anchor text
       if (url.isMismatch) {
         url.riskFlags.push({ type: "high", label: "Mismatch" });
@@ -533,10 +624,44 @@ function deduplicateAndFlag(iocs) {
       att.risky = true;
     }
 
+    // What an HTML attachment would do if opened.
+    const html = att.htmlFindings;
+    if (html) {
+      const flag = (type, label, riskType, message) => {
+        att.riskFlags.push({ type, label });
+        att.risks.push({ type: riskType, level: type, message });
+        if (type === "high") att.risky = true;
+      };
+      if (html.passwordForm) flag("high", "Login page", "login-form", "Contains a password form");
+      for (const service of html.exfil) {
+        flag("high", `Sends to ${service}`, "exfil", `Posts data to a ${service}`);
+      }
+      if (html.payloads.length) {
+        flag(
+          "high",
+          `Carries ${html.payloads.length} hidden file${html.payloads.length === 1 ? "" : "s"}`,
+          "smuggled-file",
+          "Builds a file from data hidden in the page",
+        );
+      }
+      if (html.hiddenLayers) flag("medium", "Hidden encoded layer", "hidden-layer", "Contains HTML or script encoded to hide it");
+    }
+
     // What the bytes actually are, which the filename may be hiding.
+    // Each kind keeps its own type: "the bytes are a program" is conclusive,
+    // "the page uses the smuggling pattern" is a strong heuristic, and the
+    // verdict treats them differently.
+    const CONTENT_TYPES = {
+      "Executable content": "executable-content",
+      "HTML smuggling": "html-smuggling",
+    };
     for (const finding of inspectAttachment(att)) {
       att.riskFlags.push({ type: finding.type, label: finding.label });
-      att.risks.push({ type: "content", level: finding.type, message: finding.message });
+      att.risks.push({
+        type: CONTENT_TYPES[finding.label] || "content",
+        level: finding.type,
+        message: finding.message,
+      });
       if (finding.type === "high") att.risky = true;
     }
 

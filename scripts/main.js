@@ -8,6 +8,7 @@ import { parseBody } from "./parse-body.js";
 import { extractIOCs } from "./extract-iocs.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity } from "./analyze-identity.js";
+import { buildPreview, describePreview } from "./preview.js";
 import { calculateScore } from "./score.js";
 import { sha256, sha256Bytes, md5Bytes } from "./hash-utils.js";
 import { isValidIP, isRoutableIP } from "./ip-utils.js";
@@ -975,6 +976,49 @@ async function fetchDns(btn) {
   }
 }
 
+// ===== FORWARDED EMAILS AND HTML ATTACHMENTS =====
+
+/**
+ * A suspicious message forwarded "as attachment" arrives as a .eml inside the
+ * forwarder's email. The forwarder's headers say nothing about the attacker;
+ * the attached message is the one to analyze.
+ */
+function openAttachedEmail(btn) {
+  const bytes = attachmentContentMap.get(btn.dataset.name);
+  if (!bytes || !elements.emailInput) {
+    showStatus("That attached email carried no readable content.", "error");
+    return;
+  }
+  elements.emailInput.value = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
+  handleAnalyze().then(() =>
+    showStatus(`Now analyzing the attached email "${btn.dataset.name}". Press Clear and paste the original to go back.`, "success"),
+  );
+  document.getElementById("summary-section")?.scrollIntoView({ behavior: "smooth" });
+}
+
+/** An HTML attachment shown the same safe way as the message body. */
+function renderAttachmentPreview(details) {
+  const body = details.querySelector(".att-preview-body");
+  if (!body || details.dataset.ready) return;
+  details.dataset.ready = "1";
+  const bytes = attachmentContentMap.get(details.dataset.name);
+  if (!bytes) {
+    body.textContent = "No content to preview.";
+    return;
+  }
+  const preview = buildPreview(new TextDecoder("utf-8", { fatal: false }).decode(bytes), currentAnalysis?.body?.attachments || []);
+  const note = document.createElement("p");
+  note.className = "preview-note";
+  note.textContent = `Scripts removed and never run; nothing here contacts anyone. ${describePreview(preview.stats)}`;
+  const frame = document.createElement("iframe");
+  frame.className = "html-preview";
+  frame.setAttribute("sandbox", "");
+  frame.setAttribute("referrerpolicy", "no-referrer");
+  frame.title = "Sandboxed attachment preview";
+  frame.srcdoc = preview.html;
+  body.append(note, frame);
+}
+
 // ===== COPY IOC =====
 function copyIOC(btn) {
   const row = btn.closest("tr");
@@ -1578,6 +1622,13 @@ const ACTIONS = {
   dns: (btn) => fetchDns(btn),
   "copy-iocs": (btn) => copyAllIOCs(btn),
   "open-batch": (btn) => openBatchItem(btn.dataset.index),
+  "open-eml": (btn) => openAttachedEmail(btn),
+  "expand-preview": (btn) => {
+    const wrap = btn.closest(".tab-content")?.querySelector(".preview-frame-wrap");
+    if (!wrap) return;
+    const expanded = wrap.classList.toggle("expanded");
+    btn.textContent = expanded ? "Shrink" : "Expand";
+  },
 };
 
 document.addEventListener("click", (e) => {
@@ -1595,6 +1646,7 @@ document.addEventListener(
   (e) => {
     if (e.target.classList?.contains("url-decode")) renderDecoders(e.target);
     if (e.target.classList?.contains("whois-panel") && e.target.open) fetchWhois(e.target);
+    if (e.target.classList?.contains("att-preview") && e.target.open) renderAttachmentPreview(e.target);
   },
   true,
 );

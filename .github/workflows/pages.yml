@@ -44,6 +44,7 @@ jobs:
       - run: node tests/detection.test.mjs
       - run: node tests/server.test.mjs
       - run: node tests/compare.test.mjs
+      - run: node tests/html.test.mjs
 
   deploy:
     needs: test

@@ -53,7 +53,19 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
   const becSuspected = becMatches >= 2;
   if (becSuspected && total < TIER_SUSPICIOUS) total = TIER_SUSPICIOUS;
 
+  // Some findings end the question on their own, however the message
+  // authenticates. Weighted normally, a login page that posts passwords to a
+  // Telegram bot scored "Low Risk 23" because the indicator category is capped
+  // at a quarter of the total. These set a floor instead of adding points.
+  const decisive = decisiveFindings(iocs);
+  if (decisive.high.length && total < TIER_HIGH) total = TIER_HIGH;
+  else if (decisive.suspicious.length && total < TIER_SUSPICIOUS) total = TIER_SUSPICIOUS;
+
+  // Decisive findings lead, so the summary's top three are the ones that
+  // matter rather than "no SPF record was published".
   const reasons = [
+    ...decisive.high,
+    ...decisive.suspicious,
     ...authResult.reasons,
     ...iocResult.reasons,
     ...langResult.reasons,
@@ -91,6 +103,41 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
       language: langScore,
     },
   };
+}
+
+/**
+ * Evidence that is conclusive on its own. Nothing legitimate posts form data to
+ * a Telegram bot, hides a file inside an HTML page to write it to disk, or
+ * sends a Windows program under a document's name.
+ */
+function decisiveFindings(iocs) {
+  const high = [];
+  const suspicious = [];
+  const has = (item, type, level) =>
+    (item.risks || []).some((r) => r.type === type && (!level || r.level === level));
+  const names = (items) => items.map((i) => i.value).filter(Boolean).slice(0, 3).join(", ");
+
+  const urls = iocs?.urls || [];
+  const files = iocs?.attachments || [];
+
+  const exfil = [...new Set([
+    ...urls.filter((u) => has(u, "exfil-endpoint")).map((u) => u.exfil),
+    ...files.flatMap((f) => f.htmlFindings?.exfil || []),
+  ].filter(Boolean))];
+  if (exfil.length) high.push(`Decisive: stolen data would be sent to a ${exfil.join(", ")}`);
+
+  const smuggling = files.filter((f) => has(f, "smuggled-file"));
+  if (smuggling.length) high.push(`Decisive: ${names(smuggling)} hides a file inside itself and writes it to disk (HTML smuggling)`);
+
+  const programs = files.filter((f) => has(f, "executable-content"));
+  if (programs.length) high.push(`Decisive: ${names(programs)} is a program, whatever its name says`);
+
+  const loginPages = files.filter((f) => has(f, "login-form"));
+  if (loginPages.length) suspicious.push(`A login page arrives as an attachment: ${names(loginPages)}`);
+  if (iocs?.bodyFindings?.passwordForm) suspicious.push("The message itself asks for a password in a form");
+  if (urls.some((u) => has(u, "credential-form"))) suspicious.push("A form sends a typed password to an outside address");
+
+  return { high, suspicious };
 }
 
 function clamp(n) {
@@ -289,10 +336,21 @@ function scoreIOCs(iocs) {
     reasons.push("A link points at a raw IP address instead of a domain");
   if (urls.some((u) => hasType(u, "punycode")))
     reasons.push("A link uses a punycode domain (possible homograph attack)");
-  if (medium.length)
+  if (urls.some((u) => hasType(u, "exfil-endpoint"))) {
+    const services = [...new Set(urls.filter((u) => u.exfil).map((u) => u.exfil))];
+    reasons.push(`Data would be sent to ${services.join(", ")} — the mark of a credential-stealing kit`);
+  }
+  if (urls.some((u) => hasType(u, "credential-form")))
+    reasons.push("A password form in the message or an attachment sends what is typed to an outside address");
+  // Counted by type: other medium findings (odd ports, abused TLDs, archives)
+  // have their own reasons and are not shorteners.
+  const shorteners = urls.filter((u) => hasType(u, "url-shortener")).length;
+  if (shorteners)
     reasons.push(
-      `${medium.length} link${medium.length > 1 ? "s use" : " uses"} a URL shortener, hiding the destination`,
+      `${shorteners} link${shorteners > 1 ? "s use" : " uses"} a URL shortener, hiding the destination`,
     );
+  if (urls.some((u) => hasType(u, "odd-port")))
+    reasons.push("A link uses a non-standard port");
 
   const riskyAttachments = (iocs.attachments || []).filter((a) =>
     hasRisk(a, "high"),
@@ -306,9 +364,16 @@ function scoreIOCs(iocs) {
       .join(", ");
     reasons.push(
       names
-        ? `Executable or double-extension attachment: ${names}`
-        : "Executable or double-extension attachment present",
+        ? `High-risk attachment (program, disguised type, login page or hidden payload): ${names}`
+        : "High-risk attachment present",
     );
+  }
+
+  // A login form in the message itself: nothing legitimate asks for a password
+  // inside an email.
+  if (iocs.bodyFindings?.passwordForm) {
+    score += 25;
+    reasons.push("The message itself contains a password form");
   }
 
   const punycodeDomains = (iocs.domains || []).filter((d) =>

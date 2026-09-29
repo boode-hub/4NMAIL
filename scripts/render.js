@@ -1,5 +1,7 @@
 import { isValidIP, isRoutableIP, findIPs } from "./ip-utils.js";
 import { URL_DECODERS, detectEncodings, safeRun } from "./url-decode.js";
+import { buildPreview, textAsPreview, describePreview } from "./preview.js";
+import { looksLikeHtml } from "./html-inspect.js";
 
 // Rows rendered per IOC table before the rest are collapsed behind a button.
 // A bulk HTML email routinely carries 100+ links; rendering them all built
@@ -772,7 +774,7 @@ function renderIOCSection(id, title, items, type, apiKeys, showAll) {
               item.sha256
                 ? `<div class="hash-line"><span class="hash-label">SHA-256</span><span class="mono hash-val">${esc(item.sha256)}</span></div><div class="hash-line"><span class="hash-label">MD5</span><span class="mono hash-val">${esc(item.md5 || "")}</span></div>`
                 : '<div class="hash-line"><span class="hash-label muted">no decodable content</span></div>'
-            }<div class="att-meta">${esc(item.contentType || "unknown type")} · ${formatSize(item.size)}${item.inline ? " · inline" : ""}</div></div>`
+            }<div class="att-meta">${esc(item.contentType || "unknown type")} · ${formatSize(item.size)}${item.inline ? " · inline" : ""}${item.embeddedIn ? ` · hidden inside ${esc(item.embeddedIn)}` : ""}</div>${attachmentExtras(item)}</div>`
           : "";
 
       const vtBtn = lookupUseless
@@ -848,6 +850,30 @@ function renderIOCSection(id, title, items, type, apiKeys, showAll) {
   return `<div class="ioc-section" id="${id}"><h3>${esc(title)} (${items.length})</h3><div class="table-scroll"><table class="ioc-table"><thead><tr><th>Value</th><th>Risk</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>${more}</div>`;
 }
 
+/** Static findings, a sandboxed preview, or "analyze this email" for one file. */
+function attachmentExtras(item) {
+  const parts = [];
+  const html = item.htmlFindings;
+  if (html) {
+    const lines = [];
+    lines.push(html.passwordForm ? '<li class="bad">Contains a password form — a fake login page</li>' : "<li>No password form</li>");
+    for (const service of html.exfil || []) lines.push(`<li class="bad">Posts data to a ${esc(service)}</li>`);
+    if (html.destinations) lines.push(`<li>${html.destinations} destination${html.destinations === 1 ? "" : "s"} it would contact — listed with the URLs below</li>`);
+    for (const p of html.payloads || []) {
+      lines.push(`<li class="bad">Carries a hidden file: <span class="mono">${esc(p.name)}</span> (${esc(p.type)}, ${formatSize(p.size)}, from a ${esc(p.how)})</li>`);
+    }
+    if (html.hiddenLayers) lines.push(`<li class="warn">${html.hiddenLayers} hidden encoded layer${html.hiddenLayers === 1 ? "" : "s"} decoded and read</li>`);
+    parts.push(`<div class="att-findings"><div class="att-findings-title">Read without running it:</div><ul>${lines.join("")}</ul></div>`);
+    parts.push(
+      `<details class="att-preview" data-name="${esc(item.value)}"><summary>Preview this page (sandboxed)</summary><div class="att-preview-body"></div></details>`,
+    );
+  }
+  if (/message\/rfc822/i.test(item.contentType || "") || /\.eml$/i.test(item.value || "")) {
+    parts.push(`<button class="btn-sm att-open" type="button" data-act="open-eml" data-name="${esc(item.value)}">Analyze this attached email</button>`);
+  }
+  return parts.join("");
+}
+
 function renderMismatchedLinks(links) {
   const shown = links.slice(0, IOC_ROW_LIMIT);
   const rows = shown
@@ -912,15 +938,48 @@ export function renderBody(container, body, languageAnalysis) {
       );
     });
   }
-  container.innerHTML = `<div class="body-tabs"><button class="tab-btn active" data-tab="plain">Plain Text</button><button class="tab-btn" data-tab="html">HTML Preview</button></div><div class="tab-content" id="tab-plain"><pre class="body-text">${highlightedText}</pre></div><div class="tab-content hidden" id="tab-html"><p class="preview-note">Remote images and scripts are blocked. Nothing in this preview contacts the sender.</p><iframe class="html-preview" sandbox referrerpolicy="no-referrer"></iframe></div>${renderLanguageAnalysis(languageAnalysis)}`;
+  // Work out what the preview can honestly show. A white frame with no
+  // explanation was the old answer to every one of these cases.
+  const attachments = body.attachments || [];
+  const forwarded = attachments.filter((a) => /message\/rfc822/i.test(a.contentType || "") || /\.eml$/i.test(a.filename || ""));
+  let preview = null;
+  let heading = "";
+  if (htmlContent) {
+    preview = buildPreview(htmlContent, attachments);
+  } else if (looksLikeHtml(plainText)) {
+    preview = buildPreview(plainText, attachments);
+    heading = "This message was sent as plain text but contains HTML — shown rendered, as a mail client that sniffs content would.";
+  } else if (plainText.trim()) {
+    preview = textAsPreview(plainText);
+    heading = "This message has no HTML part. It is shown as plain text.";
+  }
+  const forwardNote = forwarded.length
+    ? `<div class="preview-forward">This message carries ${forwarded.length === 1 ? "another email" : `${forwarded.length} emails`} as an attachment — often the real suspicious message, forwarded to you. ${forwarded
+        .map((a) => `<button class="btn-sm" type="button" data-act="open-eml" data-name="${esc(a.filename)}">Analyze ${esc(a.filename)}</button>`)
+        .join(" ")}</div>`
+    : "";
+  const stats = preview ? describePreview(preview.stats) : "";
 
-  // The preview must not phone home. `sandbox` with no allow-list drops the
-  // frame into a unique origin with scripts disabled, and the injected CSP
-  // blocks every remote fetch — previously the preview loaded the sender's
-  // tracking pixels the moment the tab was opened, which is exactly what this
-  // tool promises never to do.
+  container.innerHTML = `<div class="body-tabs"><button class="tab-btn active" data-tab="plain">Plain Text</button><button class="tab-btn" data-tab="html">HTML Preview</button></div><div class="tab-content" id="tab-plain"><pre class="body-text">${highlightedText}</pre></div><div class="tab-content hidden" id="tab-html">
+      ${forwardNote}
+      <div class="preview-bar">
+        <p class="preview-note">Rendered safely: nothing in this preview runs or contacts the sender.${stats ? ` <span class="preview-stats">${esc(stats)}</span>` : ""}</p>
+        ${preview ? '<button class="btn-sm" type="button" data-act="expand-preview">Expand</button>' : ""}
+      </div>
+      ${heading ? `<p class="preview-heading">${esc(heading)}</p>` : ""}
+      ${
+        preview
+          ? '<div class="preview-frame-wrap"><iframe class="html-preview" sandbox referrerpolicy="no-referrer" title="Sandboxed email preview"></iframe></div>'
+          : '<p class="preview-empty">This message has no body to preview.</p>'
+      }
+    </div>${renderLanguageAnalysis(languageAnalysis)}`;
+
+  // The frame is sandboxed with no permissions at all (no scripts, no forms,
+  // no navigation, its own throwaway origin), and the document carries its own
+  // no-network policy. buildPreview has already removed what could not be
+  // shown safely and made the rest readable.
   const iframe = container.querySelector(".html-preview");
-  if (iframe && htmlContent) iframe.srcdoc = withBlockingCSP(htmlContent);
+  if (iframe && preview) iframe.srcdoc = preview.html;
   container.querySelectorAll(".tab-btn").forEach((btn) => {
     btn.addEventListener("click", () => {
       container
@@ -935,20 +994,6 @@ export function renderBody(container, body, languageAnalysis) {
       if (tabEl) tabEl.classList.remove("hidden");
     });
   });
-}
-
-/**
- * Prepend a content-security policy that blocks every outbound request the
- * email's HTML might make. `default-src 'none'` covers images, fonts, frames,
- * scripts and fetches; inline styles stay allowed so the layout still reads.
- */
-function withBlockingCSP(html) {
-  const meta =
-    '<meta http-equiv="Content-Security-Policy" ' +
-    "content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:;\">";
-  return /<head[^>]*>/i.test(html)
-    ? html.replace(/<head[^>]*>/i, (m) => m + meta)
-    : meta + html;
 }
 
 function renderLanguageAnalysis(analysis) {

@@ -78,6 +78,14 @@ function walkParts(part, out, isRoot) {
 
 function isFilePart(part, isRoot) {
   if (part.dispositionType === "attachment") return true;
+  const isText = part.mime === "text/html" || part.mime === "text/plain";
+  // A text part marked inline, or carrying only a Content-ID, is the message
+  // body. multipart/related gives its root HTML part a Content-ID so images can
+  // point at it, and some mailers put a filename on the inline body; treating
+  // either as a file left the HTML preview blank and the body unanalysed.
+  if (isText && (part.dispositionType === "inline" || (part.contentId && !part.filename))) {
+    return false;
+  }
   // An inline part with a filename or Content-ID is an embedded file.
   if (part.filename || part.contentId) return true;
   // Any non-text, non-root leaf is a file even without a disposition header.

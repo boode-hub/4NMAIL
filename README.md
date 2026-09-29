@@ -140,6 +140,9 @@ The score combines three categories, each capped at 100 **before** weighting so 
 | 0–29 | **Low Risk** |
 
 - A message where SPF, DKIM and DMARC all fail on a misaligned domain reaches **High Risk** on authentication alone.
+- **Some findings decide the verdict on their own**, however the message authenticates, and are listed first:
+  - **High Risk** — data would be sent to a collection service such as a Telegram bot or Discord webhook; a file is hidden inside an HTML page and written to disk (HTML smuggling); a file's bytes are a program whatever its name says.
+  - **At least Suspicious** — a login page arrives as an attachment; the message itself asks for a password; two or more payment-fraud (BEC) signals.
 - Repeated low-severity findings have diminishing returns — the twentieth shortened link adds almost nothing.
 - **Every point comes with a reason**, listed under its category in the **Analysis Result** panel.
 - **Caveats** warn when a low score is not a clean result:
@@ -225,6 +228,19 @@ Every URL has a **Decode URL** section. It is highlighted with the encodings it 
 - **SHA-256 and MD5** are shown for each file, with its type, size and whether it is inline.
 - The VirusTotal button on a file looks up its hash.
 
+**HTML attachments are read, never run.** A fake login page or an "HTML smuggling" document does its work in the victim's browser, so the app reads its code instead and reports, under the attachment:
+
+- whether it contains a **password form** — a fake login page;
+- **where it would send what is typed** — form targets, `fetch`/XHR/beacon calls, redirects — with Telegram bots, Discord and Slack webhooks, Formspree, EmailJS, webhook.site and similar collection services called out by name;
+- **files hidden inside it**: base64 blobs, `atob()` payloads and percent-encoded layers are decoded, and a recovered file appears as an attachment of its own — hashed, typed from its bytes, and flagged if it is a program;
+- **hidden layers** of HTML or script, decoded and read in turn, which is usually where the real form and the real collection address live.
+
+Every address it finds becomes a URL indicator, and a **Preview this page (sandboxed)** panel shows what the page looks like with everything active removed.
+
+Running the attachment to watch it was considered and rejected: a browser sandbox cannot stop WebRTC from reaching the attacker, so detonation would break the promise that analysis never contacts the sender. Everything above is obtained by reading alone.
+
+**Emails forwarded as an attachment.** A suspicious message forwarded to you "as attachment" arrives as a `.eml` inside the forwarder's mail — whose headers say nothing about the attacker. An **Analyze this attached email** button loads the original straight into the analyzer.
+
 ### Language analysis
 
 Phrases are matched as **whole words** (so "first" never matches "IRS", nor "courtesy" match "court") in five categories:
@@ -243,7 +259,13 @@ Phrases are matched as **whole words** (so "first" never matches "IRS", nor "cou
 ### Body preview
 
 - **Plain text** view with suspicious phrases highlighted.
-- **HTML preview** in a fully sandboxed frame with a content security policy that blocks every remote request — the message's tracking pixels and remote images do not load, so opening the preview never tells the sender you looked.
+- **HTML preview** in a fully sandboxed frame — no scripts, no forms, no navigation, its own throwaway origin — with a policy that blocks every remote request, so opening it never tells the sender you looked. Before it is shown, the message is prepared so it is also **readable**:
+  - embedded images referenced by `cid:` (logos, banners) are shown from the message itself;
+  - every remote image becomes a box of the same size naming the host it would have loaded from, so an image-only phishing mail no longer looks like a blank page;
+  - links keep their text but cannot be followed — hover to see the real destination, defanged;
+  - scripts, frames, `<base>`, meta refresh and resource hints are removed; a readable default look is set, and the message's own styles still win;
+  - a message with no HTML part is shown as text, and HTML sent as `text/plain` is recognised and rendered.
+- The note above the preview says exactly what was blocked or removed, and the frame can be dragged taller or **Expanded**.
 
 ### Sender identity
 
@@ -501,6 +523,7 @@ node tests/security.test.mjs     # CSP, no inline handlers, no third-party asset
 node tests/detection.test.mjs    # identity, link shapes, file content, ARC, anomalies, BEC floor
 node tests/server.test.mjs       # traversal, null bytes, dot-files, cross-origin use of the local endpoints
 node tests/compare.test.mjs      # side-by-side table, campaign correlation, comparison exports
+node tests/html.test.mjs         # body/attachment detection, static HTML reading, verdict floors
 node tests/imports.test.mjs      # every cross-module call is imported
 ```
 
@@ -509,7 +532,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | runner | 92 |
 | auth | 37 |
 | url-decode | 26 |
-| ip | 24 |
+| ip | 30 |
 | report | 19 |
 | links | 17 |
 | attachments | 9 |
@@ -518,10 +541,11 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | detection | 25 |
 | server | 11 |
 | compare | 11 |
+| html | 19 |
 | security | 11 |
 | theme | 3 |
 | imports | 1 |
-| **Total** | **299** |
+| **Total** | **324** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 
