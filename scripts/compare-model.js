@@ -68,6 +68,16 @@ const FIELDS = [
     },
     tone: (a) => ((a.identity?.findings || []).some((f) => f.severity === "high") ? "bad" : "muted"),
   },
+  {
+    key: "thread",
+    label: "Quoted thread",
+    get: (a) => {
+      const n = a.thread?.messages?.length || 0;
+      const suspect = (a.thread?.findings || []).filter((f) => f.severity === "high").length;
+      return n ? `${n} quoted message${n === 1 ? "" : "s"}${suspect ? ` · ${suspect} sign${suspect === 1 ? "" : "s"} of fabrication` : ""}` : "None";
+    },
+    tone: (a) => ((a.thread?.findings || []).some((f) => f.severity === "high") ? "bad" : "muted"),
+  },
   { key: "from", label: "From", get: (a) => text(a.headers?.from?.email), correlate: "from" },
   { key: "fromDomain", label: "From domain", get: (a) => text(domainOf(a.headers?.from?.email)), correlate: "domain" },
   { key: "displayName", label: "Display name", get: (a) => text(a.headers?.from?.name), correlate: "displayName" },

@@ -11,6 +11,7 @@ import { parseBody } from "./parse-body.js";
 import { extractIOCs } from "./extract-iocs.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity } from "./analyze-identity.js";
+import { analyzeThread } from "./analyze-thread.js";
 import { calculateScore } from "./score.js";
 import { sha256Bytes, md5Bytes } from "./hash-utils.js";
 import { buildComparison, comparisonCsv, comparisonJson } from "./compare-model.js";
@@ -64,8 +65,12 @@ async function analyse(raw) {
   }
   const languageAnalysis = body && body.text ? analyzeLanguage(body.text) : null;
   const identity = analyzeIdentity(headers);
+  // A conversation pasted into the body to borrow trust is about who is really
+  // talking, so its findings join the identity findings (and are scored there).
+  const thread = analyzeThread(headers, body);
+  identity.findings.push(...thread.findings);
   const score = calculateScore(auth, iocs, languageAnalysis, headers, identity);
-  return { headers, auth, body, iocs, languageAnalysis, identity, score };
+  return { headers, auth, body, iocs, languageAnalysis, identity, thread, score };
 }
 
 async function addFiles(files) {

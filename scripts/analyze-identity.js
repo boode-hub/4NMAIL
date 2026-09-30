@@ -88,7 +88,7 @@ export function isMixedScript(label) {
   return latin && (cyrillic || greek);
 }
 
-function levenshtein(a, b) {
+export function levenshtein(a, b) {
   if (a === b) return 0;
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {

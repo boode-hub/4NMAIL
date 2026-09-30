@@ -920,6 +920,17 @@ export function buildJsonReport(analysis, { lookups = new Map(), local = new Map
         })),
       },
       identity: analysis.identity?.findings || [],
+      quotedThread: (analysis.thread?.messages || []).map((m) => ({
+        style: m.style,
+        from: m.from,
+        to: m.to,
+        date: m.date,
+        subject: m.subject,
+        weekdayCorrect:
+          m.parsedDate?.valid && m.parsedDate.weekdayClaimed != null
+            ? m.parsedDate.weekdayClaimed === m.parsedDate.weekdayActual
+            : null,
+      })),
       language: analysis.languageAnalysis
         ? Object.fromEntries(
             Object.entries(analysis.languageAnalysis.categories || {})

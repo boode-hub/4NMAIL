@@ -954,7 +954,7 @@ function formatSize(bytes) {
 }
 
 // ===== BODY & LANGUAGE =====
-export function renderBody(container, body, languageAnalysis) {
+export function renderBody(container, body, languageAnalysis, thread) {
   if (!body) {
     container.innerHTML = "<p>No body content</p>";
     return;
@@ -989,7 +989,9 @@ export function renderBody(container, body, languageAnalysis) {
     : "";
   const stats = preview ? describePreview(preview.stats) : "";
 
-  container.innerHTML = `<div class="body-tabs"><button class="tab-btn active" data-tab="plain">Plain Text</button><button class="tab-btn" data-tab="html">HTML Preview</button></div><div class="tab-content" id="tab-plain"><pre class="body-text">${highlightedText}</pre></div><div class="tab-content hidden" id="tab-html">
+  const threadCount = thread?.messages?.length || 0;
+  const threadSuspect = (thread?.findings || []).some((f) => f.severity === "high");
+  container.innerHTML = `<div class="body-tabs"><button class="tab-btn active" data-tab="plain">Plain Text</button><button class="tab-btn" data-tab="html">HTML Preview</button><button class="tab-btn${threadSuspect ? " tab-alert" : ""}" data-tab="thread">Thread${threadCount ? ` (${threadCount})` : ""}</button></div><div class="tab-content hidden" id="tab-thread">${renderThread(thread)}</div><div class="tab-content" id="tab-plain"><pre class="body-text">${highlightedText}</pre></div><div class="tab-content hidden" id="tab-html">
       ${forwardNote}
       <div class="preview-bar">
         <p class="preview-note">Rendered safely: nothing in this preview runs or contacts the sender.${stats ? ` <span class="preview-stats">${esc(stats)}</span>` : ""}</p>
@@ -1023,6 +1025,64 @@ export function renderBody(container, body, languageAnalysis) {
       if (tabEl) tabEl.classList.remove("hidden");
     });
   });
+}
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * The conversation quoted inside the body, message by message, with every
+ * check that could expose it as made up.
+ */
+function renderThread(thread) {
+  const messages = thread?.messages || [];
+  const findings = thread?.findings || [];
+  const intro =
+    '<p class="thread-note">Earlier messages quoted inside this email. They are plain text the sender wrote — nothing verified them — so each one is checked for whether it could really have been sent.</p>';
+
+  if (!messages.length) {
+    return `${intro}<p class="thread-empty">No quoted conversation found in this message.${
+      findings.length ? "" : ""
+    }</p>${findings.length ? threadFindings(findings) : ""}`;
+  }
+
+  const rows = messages
+    .map((m, i) => {
+      const d = m.parsedDate;
+      let dateCheck = "";
+      if (d && !d.valid) dateCheck = '<span class="thread-bad">✗ not a real date</span>';
+      else if (d?.valid && d.weekdayClaimed != null) {
+        dateCheck =
+          d.weekdayClaimed === d.weekdayActual
+            ? '<span class="thread-ok">✓ weekday correct</span>'
+            : `<span class="thread-bad">✗ was a ${WEEKDAY_NAMES[d.weekdayActual]}</span>`;
+      }
+      const who = [m.from?.name, m.from?.email ? `<span class="mono">${esc(m.from.email)}</span>` : ""].filter(Boolean);
+      return `<tr>
+        <td data-label="#">${i + 1}</td>
+        <td data-label="From">${who.length ? who.map((w) => (w.startsWith("<span") ? w : esc(w))).join(" ") : '<span class="muted">—</span>'}</td>
+        <td data-label="To">${m.to ? esc(m.to) : '<span class="muted">—</span>'}</td>
+        <td data-label="Date">${m.date ? esc(m.date) : '<span class="muted">—</span>'}${dateCheck ? `<div>${dateCheck}</div>` : ""}</td>
+        <td data-label="Subject">${m.subject ? esc(m.subject) : '<span class="muted">—</span>'}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const status = thread.hasReplyHeaders
+    ? '<span class="thread-ok">This email is a genuine reply (it carries In-Reply-To / References).</span>'
+    : thread.isForward
+      ? '<span class="muted">This email is a forward.</span>'
+      : '<span class="thread-bad">This email is not a reply to anything — no In-Reply-To or References header.</span>';
+
+  return `${intro}${threadFindings(findings)}<p class="thread-status">${status}</p>
+    <div class="table-scroll"><table class="ioc-table thread-table"><thead><tr><th>#</th><th>From</th><th>To</th><th>Date</th><th>Subject</th></tr></thead><tbody>${rows}</tbody></table></div>
+    <p class="thread-note">1 is the most recent quoted message. A real thread reads newest first.</p>`;
+}
+
+function threadFindings(findings) {
+  if (!findings.length) return '<p class="thread-clean">No sign that this conversation was fabricated.</p>';
+  return `<ul class="identity-list thread-findings">${findings
+    .map((f) => `<li class="identity-item ${esc(f.severity)}"><span class="identity-title">${esc(f.title)}</span><span class="identity-detail">${esc(f.detail)}</span></li>`)
+    .join("")}</ul>`;
 }
 
 function renderLanguageAnalysis(analysis) {

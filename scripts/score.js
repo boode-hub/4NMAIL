@@ -68,7 +68,7 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
   // authenticates. Weighted normally, a login page that posts passwords to a
   // Telegram bot scored "Low Risk 23" because the indicator category is capped
   // at a quarter of the total. These set a floor instead of adding points.
-  const decisive = decisiveFindings(iocs);
+  const decisive = decisiveFindings(iocs, identity);
   if (decisive.high.length && total < TIER_HIGH) total = TIER_HIGH;
   else if (decisive.suspicious.length && total < TIER_SUSPICIOUS) total = TIER_SUSPICIOUS;
 
@@ -131,9 +131,17 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
  * a Telegram bot, hides a file inside an HTML page to write it to disk, or
  * sends a Windows program under a document's name.
  */
-function decisiveFindings(iocs) {
+function decisiveFindings(iocs, identity) {
   const high = [];
   const suspicious = [];
+
+  // A conversation that could not have happened — a fake reply, a date with
+  // the wrong weekday, the sender impersonating someone from the thread — is
+  // a deliberate trust trick, whatever else the message does.
+  const fakeThread = (identity?.findings || []).filter((f) => f.id?.startsWith("thread-") && f.severity === "high");
+  if (fakeThread.length) {
+    suspicious.push(`The quoted conversation looks fabricated: ${fakeThread.map((f) => f.title.toLowerCase()).join("; ")}`);
+  }
   const has = (item, type, level) =>
     (item.risks || []).some((r) => r.type === type && (!level || r.level === level));
   const names = (items) => items.map((i) => i.value).filter(Boolean).slice(0, 3).join(", ");

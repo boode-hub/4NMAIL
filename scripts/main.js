@@ -8,6 +8,7 @@ import { parseBody } from "./parse-body.js";
 import { extractIOCs } from "./extract-iocs.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity } from "./analyze-identity.js";
+import { analyzeThread } from "./analyze-thread.js";
 import { buildPreview, describePreview } from "./preview.js";
 import { calculateScore } from "./score.js";
 import { sha256, sha256Bytes, md5Bytes } from "./hash-utils.js";
@@ -353,6 +354,10 @@ async function buildAnalysis(input) {
   const languageAnalysis = body && body.text ? analyzeLanguage(body.text) : null;
   // Who the message claims to be from, which authentication cannot answer.
   const identity = analyzeIdentity(headers);
+  // A conversation pasted into the body to borrow trust is about who is really
+  // talking, so its findings join the identity findings (and are scored there).
+  const thread = analyzeThread(headers, body);
+  identity.findings.push(...thread.findings);
   const score = calculateScore(auth, iocs, languageAnalysis, headers, identity);
 
   return {
@@ -360,6 +365,7 @@ async function buildAnalysis(input) {
       headers,
       auth,
       identity,
+      thread,
       body,
       iocs,
       languageAnalysis,
@@ -790,7 +796,7 @@ async function renderResults(analysis) {
   if (analysis.isFullEmail && analysis.body) {
     if (bodySection) bodySection.classList.remove("hidden");
     if (bodyContent)
-      renderBody(bodyContent, analysis.body, analysis.languageAnalysis);
+      renderBody(bodyContent, analysis.body, analysis.languageAnalysis, analysis.thread);
   } else {
     if (bodySection) bodySection.classList.add("hidden");
   }

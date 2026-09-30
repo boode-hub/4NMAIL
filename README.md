@@ -19,6 +19,7 @@ All analysis runs locally in your browser. Nothing is uploaded; the only data th
 - [Features](#features)
   - [Quick Summary](#quick-summary)
   - [Sender identity](#sender-identity)
+  - [Fabricated conversation threads](#fabricated-conversation-threads)
   - [Verdict and scoring](#verdict-and-scoring)
   - [Email authentication](#email-authentication)
   - [Sender IP and route](#sender-ip-and-route)
@@ -267,6 +268,25 @@ Matching is whole-word (so "first" never matches "IRS"), case-insensitive, and w
 - The **Quick Summary** shows red-flag phrases first, grouped by category, with the broad terms folded underneath each group.
 - The **Body & Language Analysis** panel highlights everything inline: red flags filled with the category colour, broad terms underlined.
 
+### Fabricated conversation threads
+
+A favourite business-email-compromise trick: the attacker pastes a made-up conversation into the body — `From: … Sent: … To: … Subject: RE: Invoice`, several times over — so the payment request looks like the next step in a thread the victim's colleagues already agreed to. Those quoted messages are plain text nobody verified, so the analyzer reads them back out (Outlook and Apple Mail header blocks, Gmail and Thunderbird "On … wrote:" lines, several languages, from plain text or HTML) and checks whether that conversation could really have happened:
+
+| Check | Why it gives a fake away |
+|---|---|
+| The body quotes a thread, but the email is not a reply in any mail system (no `In-Reply-To` / `References`) | a real reply always carries them |
+| The subject says `RE:` but nothing is being replied to | the classic fake reply |
+| A quoted date's weekday is wrong ("Monday, January 16, 2024" was a Tuesday), or the date does not exist | mail clients write the date themselves; people typing a fake thread get it wrong |
+| A quoted message is dated after the email itself, or the messages are out of order | impossible in a real thread |
+| The sender signs as someone from the thread, but writes from a different address | impersonation inside the conversation |
+| A thread participant's domain is a lookalike of the sender's (`acme-corp.com` / `acrne-corp.com`) | someone else's conversation, continued from a lookalike domain |
+| The sender appears nowhere in the conversation they continue | a hijacked thread |
+| The payment or bank-detail instruction sits inside the part that looks fabricated | the "approval" the request relies on is itself fake |
+
+Only month-name dates are judged — `01/02/2024` could be January or February, and an honest thread must never be accused on a guess.
+
+Findings appear in the **Sender identity** card and are scored; any strong sign of fabrication makes the message at least **Suspicious**, and is listed first. The **Thread** tab in the Body panel lists every quoted message with its sender, recipient, date (and whether its weekday is real) and subject, and says whether the email itself is a genuine reply.
+
 ### Body preview
 
 - **Plain text** view with suspicious phrases highlighted.
@@ -493,6 +513,7 @@ Raw email
 │   ├── ip-utils.js             IP validation and extraction
 │   ├── analyze-language.js     Phrase detection engine
 │   ├── keywords.js             The word lists (strong and broad, nine categories)
+│   ├── analyze-thread.js       Quoted-conversation parsing and fabrication checks
 │   ├── score.js                Scoring, reasons and caveats
 │   ├── render.js               Rendering for every panel
 │   ├── report.js               HTML / CSV report export and defanging
@@ -530,6 +551,7 @@ node tests/links.test.mjs        # link and IOC extraction, summary and verdict 
 node tests/report.test.mjs       # report export: defanging, safety, well-formed output
 node tests/headers.test.mjs      # original header order view
 node tests/language.test.mjs     # word lists, tiers, whole-word matching, floors, speed
+node tests/thread.test.mjs       # fabricated threads, and genuine replies left alone
 node tests/theme.test.mjs        # accent colour palette, apply and reset
 node tests/security.test.mjs     # CSP, no inline handlers, no third-party assets, relay allow-list
 node tests/detection.test.mjs    # identity, link shapes, file content, ARC, anomalies, BEC floor
@@ -549,6 +571,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | links | 17 |
 | attachments | 9 |
 | language | 18 |
+| thread | 13 |
 | headers | 6 |
 | detection | 25 |
 | server | 11 |
@@ -557,7 +580,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | security | 11 |
 | theme | 3 |
 | imports | 1 |
-| **Total** | **335** |
+| **Total** | **348** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 
