@@ -924,7 +924,15 @@ export function buildJsonReport(analysis, { lookups = new Map(), local = new Map
         ? Object.fromEntries(
             Object.entries(analysis.languageAnalysis.categories || {})
               .filter(([, c]) => c.matchCount)
-              .map(([k, c]) => [k, { label: c.label, count: c.matchCount, phrases: (c.matches || []).map((m) => m.phrase) }]),
+              .map(([k, c]) => [
+                k,
+                {
+                  label: c.label,
+                  strong: c.strongCount ?? c.matchCount,
+                  broad: c.broadCount ?? 0,
+                  phrases: (c.matches || []).map((m) => ({ phrase: m.phrase, tier: m.tier || "strong" })),
+                },
+              ]),
           )
         : {},
       indicators: {

@@ -247,9 +247,33 @@ function ipLookupButtons(ip, apiKeys) {
   return `<span class="ip-actions">${copy}${vt}${abuse}</span>`;
 }
 
-// Credential and financial lures ask the victim to act against their own
-// interest; urgency and authority only apply pressure. Tone follows that.
-const LANG_TONE = { credential: "bad", financial: "bad", bec: "bad", urgency: "warn", authority: "warn" };
+// Categories that ask the victim to act against their own interest are red;
+// pressure and persuasion are amber. Broad words are always shown quietly.
+const LANG_TONE = {
+  credential: "bad",
+  financial: "bad",
+  bec: "bad",
+  extortion: "bad",
+  advancefee: "bad",
+  urgency: "warn",
+  authority: "warn",
+  lure: "warn",
+  social: "warn",
+};
+
+/** One chip per distinct phrase, with a count when it repeats. */
+function langChips(matches, tone) {
+  const phrases = new Map();
+  for (const m of matches) {
+    const norm = String(m.phrase).toLowerCase().replace(/\s+/g, " ");
+    const entry = phrases.get(norm) || { phrase: m.phrase.replace(/\s+/g, " "), count: 0 };
+    entry.count++;
+    phrases.set(norm, entry);
+  }
+  return [...phrases.values()]
+    .map((p) => `<span class="lang-chip ${tone}">${esc(p.phrase)}${p.count > 1 ? `<b>×${p.count}</b>` : ""}</span>`)
+    .join("");
+}
 
 /**
  * Quick Summary card listing the suspicious phrases found, grouped by
@@ -263,41 +287,50 @@ function renderLanguageCard(lang, body) {
     return `<div class="summary-card summary-lang-card risk-border-neutral">${header()}<p class="lang-empty">No message body to analyze.</p></div>`;
   }
 
+  // Strong phrases lead; broad words are listed underneath, folded away, so
+  // the analyst sees every money and pressure cue without it drowning the rest.
   const groups = Object.entries(lang.categories || {})
     .map(([key, cat]) => {
-      // The same phrase can match in different cases ("Act now", "act now");
-      // show it once with a count.
-      const phrases = new Map();
-      for (const m of cat.matches || []) {
-        const norm = String(m.phrase).toLowerCase();
-        const entry = phrases.get(norm) || { phrase: m.phrase, count: 0 };
-        entry.count++;
-        phrases.set(norm, entry);
-      }
-      return { key, label: cat.label || key, total: cat.matchCount || 0, phrases: [...phrases.values()] };
+      const matches = cat.matches || [];
+      const strong = matches.filter((m) => (m.tier || "strong") === "strong");
+      const broad = matches.filter((m) => m.tier === "broad");
+      return { key, label: cat.label || key, strong, broad };
     })
-    .filter((g) => g.phrases.length);
+    .filter((g) => g.strong.length || g.broad.length)
+    // Categories with red flags first, then by how much was found.
+    .sort((a, b) => b.strong.length - a.strong.length || b.broad.length - a.broad.length);
 
   if (!groups.length) {
     return `<div class="summary-card summary-lang-card risk-border-low">${header()}<p class="lang-empty verified">No suspicious language detected.</p></div>`;
   }
 
-  const total = groups.reduce((n, g) => n + g.total, 0);
-  const risk = groups.some((g) => LANG_TONE[g.key] === "bad") ? "high" : "medium";
+  const strongTotal = groups.reduce((n, g) => n + g.strong.length, 0);
+  const broadTotal = groups.reduce((n, g) => n + g.broad.length, 0);
+  const risk = groups.some((g) => g.strong.length && LANG_TONE[g.key] === "bad")
+    ? "high"
+    : strongTotal
+      ? "medium"
+      : "low";
+
+  const counts = [
+    strongTotal ? `${strongTotal} red-flag phrase${strongTotal === 1 ? "" : "s"}` : "",
+    broadTotal ? `${broadTotal} broader term${broadTotal === 1 ? "" : "s"}` : "",
+  ].filter(Boolean).join(" · ");
 
   return `<div class="summary-card summary-lang-card risk-border-${risk}">
-    ${header(`<span class="lang-total">${total} phrase${total === 1 ? "" : "s"}</span>`)}
+    ${header(`<span class="lang-total">${counts}</span>`)}
     <div class="lang-groups">${groups
-      .map(
-        (g) => `<div class="lang-group">
-          <div class="lang-group-head"><span class="lang-group-name">${esc(g.label)}</span><span class="lang-group-count ${LANG_TONE[g.key] || "warn"}">${g.total}</span></div>
-          <div class="lang-chips">${g.phrases
-            .map(
-              (p) => `<span class="lang-chip ${LANG_TONE[g.key] || "warn"}">${esc(p.phrase)}${p.count > 1 ? `<b>×${p.count}</b>` : ""}</span>`,
-            )
-            .join("")}</div>
-        </div>`,
-      )
+      .map((g) => {
+        const tone = LANG_TONE[g.key] || "warn";
+        const broadList = g.broad.length
+          ? `<details class="lang-broad"><summary>${g.strong.length ? "+ " : ""}${g.broad.length} broader term${g.broad.length === 1 ? "" : "s"}</summary><div class="lang-chips">${langChips(g.broad, "muted")}</div></details>`
+          : "";
+        return `<div class="lang-group">
+          <div class="lang-group-head"><span class="lang-group-name">${esc(g.label)}</span><span class="lang-group-count ${g.strong.length ? tone : "muted"}">${g.strong.length}${g.broad.length ? ` <small>+${g.broad.length}</small>` : ""}</span></div>
+          ${g.strong.length ? `<div class="lang-chips">${langChips(g.strong, tone)}</div>` : ""}
+          ${broadList}
+        </div>`;
+      })
       .join("")}</div>
   </div>`;
 }
@@ -405,7 +438,7 @@ function renderLangFlags(a) {
     .filter(([, c]) => c.matchCount > 0)
     .map(
       ([n, c]) =>
-        `<div class="lang-flag"><span class="flag-name">${esc(n)}</span><span class="flag-count">${c.matchCount}</span></div>`,
+        `<div class="lang-flag"><span class="flag-name">${esc(c.label || n)}</span><span class="flag-count">${c.strongCount ?? c.matchCount}${c.broadCount ? ` <small>+${c.broadCount}</small>` : ""}</span></div>`,
     );
   return flags.length
     ? flags.join("")
@@ -928,16 +961,12 @@ export function renderBody(container, body, languageAnalysis) {
   }
   const plainText = body.text || "";
   const htmlContent = body.html || "";
-  let highlightedText = esc(plainText);
-  if (languageAnalysis && languageAnalysis.matches) {
-    languageAnalysis.matches.forEach((match) => {
-      const escaped = esc(match.phrase);
-      highlightedText = highlightedText.replace(
-        new RegExp(escaped, "gi"),
-        `<mark class="lang-highlight ${match.category}">${escaped}</mark>`,
-      );
-    });
-  }
+  // The analyzer already built the text with every match marked, merging
+  // overlaps and escaping everything else. Rebuilding it here by
+  // string-replacing each phrase into HTML could match inside the markup it had
+  // just written — and with thousands of terms it would.
+  const highlightedText =
+    languageAnalysis?.highlightedText && plainText ? languageAnalysis.highlightedText : esc(plainText);
   // Work out what the preview can honestly show. A white frame with no
   // explanation was the old answer to every one of these cases.
   const attachments = body.attachments || [];
@@ -1002,11 +1031,13 @@ function renderLanguageAnalysis(analysis) {
     .filter(([, cat]) => cat.matchCount > 0)
     .map(
       ([name, cat]) =>
-        `<div class="lang-category"><div class="lang-cat-header"><span class="lang-cat-name">${esc(name)}</span><span class="lang-cat-count">${cat.matchCount}</span></div><div class="lang-cat-phrases">${(
+        `<div class="lang-category"><div class="lang-cat-header"><span class="lang-cat-name">${esc(cat.label || name)}</span><span class="lang-cat-count">${cat.strongCount ?? cat.matchCount}${cat.broadCount ? ` <small>+${cat.broadCount} broad</small>` : ""}</span></div><div class="lang-cat-phrases">${(
           cat.matches || []
         )
-          .slice(0, 5)
-          .map((m) => `<span class="lang-phrase">${esc(m.phrase)}</span>`)
+          .slice()
+          .sort((a, b) => (a.tier === "broad") - (b.tier === "broad"))
+          .slice(0, 12)
+          .map((m) => `<span class="lang-phrase${m.tier === "broad" ? " broad" : ""}">${esc(m.phrase)}</span>`)
           .join("")}</div></div>`,
     )
     .join("");

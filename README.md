@@ -243,18 +243,29 @@ Running the attachment to watch it was considered and rejected: a browser sandbo
 
 ### Language analysis
 
-Phrases are matched as **whole words** (so "first" never matches "IRS", nor "courtesy" match "court") in five categories:
+About **2,500 terms** in nine categories, built from the wording of real phishing and fraud and cross-checked against open sources (Apache SpamAssassin's advance-fee rules, published phishing and BEC subject-line studies, government guidance on tax-refund, parcel and sextortion scams, and research on persuasion principles in phishing). The lists live in [`scripts/keywords.js`](scripts/keywords.js), one term per line or after a comma, so they are easy to extend.
 
-| Category | Examples | Severity |
+| Category | What it covers | Examples |
 |---|---|---|
-| **Urgency** | act now, within 24 hours, account will be suspended, final warning | Caution |
-| **Authority / Fear** | legal action, law enforcement, IRS, unauthorized access, final notice | Caution |
-| **Financial / Fraud** | wire transfer, gift card, bitcoin, banking details, payment request | High |
-| **Credential harvesting** | click here to verify, confirm your password, reset your password | High |
-| **BEC / Payment fraud** | new or updated bank details, change of beneficiary, wire instructions, direct-deposit changes, overdue invoice, process the payment, proof of payment, "are you available", "I'm in a meeting", keep this confidential, purchase gift cards and send the codes | High |
+| **Urgency / Pressure** | deadlines, threats of loss, countdowns | within 24 hours, your account will be suspended, final notice, expires today |
+| **Authority / Fear / Threat** | law, government, security teams, penalties | legal action, IRS, HMRC, unauthorized access, we have detected, cease and desist |
+| **Money / Financial** | every money topic — plus amounts, IBANs and crypto wallets as written | VAT, fee, invoice, account number, sort code, wire transfer, customs duty, gift card, bitcoin, `$4,500.00`, `GB29 NWBK …` |
+| **Credential harvesting** | logins, shared documents, mailbox and password lures | verify your account, mailbox is full, shared a document with you, password expires |
+| **BEC / Payment fraud** | bank-detail changes, CEO fraud, payroll diversion, gift cards | our bank account has changed, I'm in a meeting, keep this confidential, buy gift cards |
+| **Lure / Reward / Seduction** | prizes, free money, jobs, parcels, romance | you have won, claim your prize, no strings attached, I saw your profile |
+| **Advance-Fee / 419** | inheritances, consignments, compensation funds | next of kin, died intestate, diplomatic courier, can I trust you, clearance certificate |
+| **Social engineering** | generic greetings, secrecy, callback numbers, pretexts | Dear valued customer, if you did not authorize, call us immediately at +1 …, for your eyes only |
+| **Extortion / Sextortion** | hacked-device claims, recordings, crypto demands | I recorded you, your webcam, pay in bitcoin, you have 48 hours, don't go to the police |
 
-- The **Quick Summary** lists the phrases found, grouped by category, with repeated phrases shown once with a count (`Act now ×2`).
-- The **Body & Language Analysis** panel shows the full breakdown and highlights every phrase inline, coloured by category.
+Each term is either:
+
+- **Strong** — a red flag in itself. Strong phrases are scored and can set a verdict floor: two BEC phrases, two extortion phrases or three advance-fee phrases make a message at least **Suspicious**, with advice on what to do.
+- **Broad** — a word that only says what the message is about (`invoice`, `VAT`, `fee`, `deadline`, `kindly`). Broad words are **always highlighted and listed**, so every money, pressure and persuasion cue is visible — but they **add nothing to the score**. Ordinary invoices are full of them, and a flood of expected false positives must never move a verdict.
+
+Matching is whole-word (so "first" never matches "IRS"), case-insensitive, and works across line breaks, hyphens, curly apostrophes and plurals. A handful of words appear in nearly every email (`now`, `today`, `please`, `help`, `call`, `message`, `dear`) and are left out on their own; phrases containing them are in.
+
+- The **Quick Summary** shows red-flag phrases first, grouped by category, with the broad terms folded underneath each group.
+- The **Body & Language Analysis** panel highlights everything inline: red flags filled with the category colour, broad terms underlined.
 
 ### Body preview
 
@@ -480,7 +491,8 @@ Raw email
 │   ├── extract-iocs.js         Indicator extraction and risk flags
 │   ├── url-decode.js           URL unwrapping and decoders
 │   ├── ip-utils.js             IP validation and extraction
-│   ├── analyze-language.js     Phrase detection
+│   ├── analyze-language.js     Phrase detection engine
+│   ├── keywords.js             The word lists (strong and broad, nine categories)
 │   ├── score.js                Scoring, reasons and caveats
 │   ├── render.js               Rendering for every panel
 │   ├── report.js               HTML / CSV report export and defanging
@@ -517,7 +529,7 @@ node tests/url-decode.test.mjs   # URL unwrapping and decoders
 node tests/links.test.mjs        # link and IOC extraction, summary and verdict rendering
 node tests/report.test.mjs       # report export: defanging, safety, well-formed output
 node tests/headers.test.mjs      # original header order view
-node tests/language.test.mjs     # whole-word matching, BEC / payment-fraud phrases
+node tests/language.test.mjs     # word lists, tiers, whole-word matching, floors, speed
 node tests/theme.test.mjs        # accent colour palette, apply and reset
 node tests/security.test.mjs     # CSP, no inline handlers, no third-party assets, relay allow-list
 node tests/detection.test.mjs    # identity, link shapes, file content, ARC, anomalies, BEC floor
@@ -536,7 +548,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | report | 19 |
 | links | 17 |
 | attachments | 9 |
-| language | 7 |
+| language | 18 |
 | headers | 6 |
 | detection | 25 |
 | server | 11 |
@@ -545,7 +557,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | security | 11 |
 | theme | 3 |
 | imports | 1 |
-| **Total** | **324** |
+| **Total** | **335** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 

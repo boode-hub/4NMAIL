@@ -49,9 +49,20 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
   // Two or more signals, not one: a single "approve the payment" appears in
   // ordinary finance mail, while real payment fraud stacks the instruction, the
   // bank details, the excuse for not talking and the demand for secrecy.
-  const becMatches = languageAnalysis?.categories?.bec?.matchCount || 0;
-  const becSuspected = becMatches >= 2;
-  if (becSuspected && total < TIER_SUSPICIOUS) total = TIER_SUSPICIOUS;
+  // Strong phrases only: broad words such as "invoice" and "payment" are in
+  // every accounts email and must never trip a floor by themselves.
+  const strongCount = (key) => {
+    const cat = languageAnalysis?.categories?.[key];
+    return cat ? cat.strongCount ?? cat.matchCount ?? 0 : 0;
+  };
+  const becSuspected = strongCount("bec") >= 2;
+  // Sextortion and advance-fee scams are sent from throwaway but perfectly
+  // authenticated mailboxes, so like BEC their wording is the evidence.
+  const extortionSuspected = strongCount("extortion") >= 2;
+  const advanceFeeSuspected = strongCount("advancefee") >= 3;
+  if ((becSuspected || extortionSuspected || advanceFeeSuspected) && total < TIER_SUSPICIOUS) {
+    total = TIER_SUSPICIOUS;
+  }
 
   // Some findings end the question on their own, however the message
   // authenticates. Weighted normally, a login page that posts passwords to a
@@ -91,6 +102,16 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
       ...(becSuspected
         ? [
             "This message asks about payments or bank details. Confirm any change by phone on a number you already had — never one from this email — before anything is paid.",
+          ]
+        : []),
+      ...(extortionSuspected
+        ? [
+            "This reads as an extortion or sextortion email. These claims are almost always bluffs built from leaked data — do not pay, do not reply, and report it.",
+          ]
+        : []),
+      ...(advanceFeeSuspected
+        ? [
+            "This reads as an advance-fee (419) scam: a promised fortune that first requires a fee or personal details. Nothing is ever paid out.",
           ]
         : []),
     ],
@@ -416,9 +437,13 @@ function scoreLanguage(lang) {
     authority: 0.5,
     financial: 0.8,
     credential: 0.8,
-    // BEC mail usually authenticates cleanly and carries no link or file, so
-    // its wording is weighted highest of the language signals.
+    // BEC and extortion mail usually authenticates cleanly and carries no link
+    // or file, so their wording is weighted highest of the language signals.
     bec: 1.0,
+    extortion: 1.0,
+    advancefee: 0.9,
+    lure: 0.6,
+    social: 0.5,
   };
   const labels = {
     urgency: "urgency phrase",
@@ -426,16 +451,21 @@ function scoreLanguage(lang) {
     financial: "financial/fraud phrase",
     credential: "credential-harvesting phrase",
     bec: "BEC / payment-fraud phrase",
+    extortion: "extortion / sextortion phrase",
+    advancefee: "advance-fee (419) phrase",
+    lure: "lure / reward phrase",
+    social: "social-engineering phrase",
   };
 
   let score = 0;
   for (const [name, cat] of Object.entries(lang.categories)) {
     if (!cat || !cat.matchCount) continue;
     score += (cat.score || 0) * (weights[name] ?? 0.5);
+    // Older results carry no tier counts; every match was a strong phrase then.
+    const strong = cat.strongCount ?? cat.matchCount;
+    if (!strong) continue;
     const label = labels[name] || `${name} phrase`;
-    reasons.push(
-      `${cat.matchCount} ${label}${cat.matchCount > 1 ? "s" : ""} detected`,
-    );
+    reasons.push(`${strong} ${label}${strong > 1 ? "s" : ""} detected`);
   }
 
   return { score: Math.round(score), reasons };

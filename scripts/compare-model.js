@@ -131,9 +131,17 @@ const FIELDS = [
     label: "Language flags",
     get: (a) => {
       const cats = Object.entries(a.languageAnalysis?.categories || {}).filter(([, c]) => c.matchCount);
-      return cats.length ? cats.map(([, c]) => `${c.label}: ${c.matchCount}`).join("; ") : "None";
+      return cats.length
+        ? cats
+            .map(([, c]) => `${c.label}: ${c.strongCount ?? c.matchCount}${c.broadCount ? ` (+${c.broadCount})` : ""}`)
+            .join("; ")
+        : "None";
     },
-    tone: (a) => ((a.languageAnalysis?.categories?.bec?.matchCount || 0) >= 2 ? "bad" : "muted"),
+    tone: (a) => {
+      const cats = a.languageAnalysis?.categories || {};
+      const strong = (k) => cats[k]?.strongCount ?? cats[k]?.matchCount ?? 0;
+      return strong("bec") >= 2 || strong("extortion") >= 2 || strong("advancefee") >= 3 ? "bad" : "muted";
+    },
   },
   {
     key: "anomalies",

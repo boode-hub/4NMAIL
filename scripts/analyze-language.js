@@ -1,364 +1,185 @@
 // Language / Urgency / Fraud Analysis
-// Local keyword/pattern-based detection - no external API calls
+// Local keyword and pattern detection — no external API calls.
+//
+// The word lists live in keywords.js. Each category has strong phrases (red
+// flags in themselves) and broad words (what the message is about). Both are
+// found and shown; only strong phrases count toward the score, so broad words
+// inform the analyst without ever moving the verdict.
+//
+// Matching walks the text word by word and looks candidates up by their first
+// word, instead of running one regular expression per term: with two thousand
+// terms that is the difference between milliseconds and seconds on a large
+// email. Whole words only — "irs" never matches inside "first".
 
-// Keyword/pattern lists
-const KEYWORD_PATTERNS = {
-  urgency: {
-    keywords: [
-      "act now",
-      "immediately",
-      "urgent",
-      "as soon as possible",
-      "right away",
-      "within 24 hours",
-      "within 48 hours",
-      "deadline",
-      "expires soon",
-      "account will be suspended",
-      "account will be locked",
-      "account will be closed",
-      "verify now",
-      "confirm now",
-      "update now",
-      "limited time",
-      "time sensitive",
-      "action required",
-      "immediate action",
-      "respond immediately",
-      "your account expires",
-      "final warning",
-      "last chance",
-      "don't delay",
-      "hurry",
-      "act fast",
-      "time running out",
-      "expires today",
-      "expires in",
-    ],
-    weight: 1.0,
-    label: "Urgency",
-  },
-  authority: {
-    keywords: [
-      "legal action",
-      "lawsuit",
-      "court",
-      "attorney",
-      "law enforcement",
-      "irs",
-      "tax authority",
-      "government",
-      "federal",
-      "official notice",
-      "your account has been compromised",
-      "unauthorized access",
-      "security breach",
-      "suspicious activity",
-      "final notice",
-      "cease and desist",
-      "penalty",
-      "violation",
-      "compliance required",
-      "mandatory",
-      "obligatory",
-    ],
-    weight: 1.2,
-    label: "Authority/Fear",
-  },
-  financial: {
-    keywords: [
-      "wire transfer",
-      "bank transfer",
-      "swift",
-      "iban",
-      "gift card",
-      "itunes gift card",
-      "amazon gift card",
-      "cryptocurrency",
-      "bitcoin",
-      "btc",
-      "wallet address",
-      "invoice payment",
-      "payment request",
-      "outstanding payment",
-      "banking details",
-      "account details",
-      "routing number",
-      "update your payment information",
-      "payment method expired",
-      "credit card expired",
-      "billing information",
-      "refund",
-      "reimbursement",
-      "compensation",
-      "transaction",
-      "payment confirmation",
-      "order confirmation",
-    ],
-    weight: 1.1,
-    label: "Financial/Fraud",
-  },
-  credential: {
-    keywords: [
-      "click here to verify",
-      "click here to confirm",
-      "verify your account",
-      "confirm your password",
-      "confirm your identity",
-      "login to secure",
-      "login to verify",
-      "sign in to verify",
-      "update your password",
-      "reset your password",
-      "validate your account",
-      "authenticate your account",
-      "security check",
-      "account verification",
-      "confirm login details",
-      "update account information",
-      "verify credentials",
-      "secure your account now",
-    ],
-    weight: 1.3,
-    label: "Credential Harvesting",
-  },
-  // Business Email Compromise and payment fraud: no link or attachment, just a
-  // convincing request to move money — redirect an invoice to "new" bank
-  // details, or an executive asking for a quick, confidential transfer. These
-  // messages often authenticate perfectly, so the wording is the main signal.
-  bec: {
-    keywords: [
-      // Changed payment details — the core of invoice / vendor fraud
-      "new bank details",
-      "updated bank details",
-      "change of bank details",
-      "change in bank details",
-      "bank details have changed",
-      "bank details has changed",
-      "our bank account has changed",
-      "changed our bank",
-      "new bank account",
-      "new account details",
-      "updated account details",
-      "change of payment details",
-      "updated payment details",
-      "new payment details",
-      "new remittance details",
-      "update the beneficiary",
-      "new beneficiary",
-      "beneficiary details",
-      "beneficiary account",
-      "wire instructions",
-      "wiring instructions",
-      "payment instructions",
-      "sort code",
-      "ach transfer",
-      "direct deposit",
-      "update my direct deposit",
-      "change my direct deposit",
-      "payroll change",
-      "payroll update",
-      // Invoice pressure
-      "overdue invoice",
-      "past due invoice",
-      "unpaid invoice",
-      "outstanding invoice",
-      "overdue payment",
-      "process the payment",
-      "process this payment",
-      "release the payment",
-      "settle the invoice",
-      "proof of payment",
-      "remittance advice",
-      "pro forma invoice",
-      "proforma invoice",
-      "same day payment",
-      "same-day payment",
-      "transfer the funds",
-      "wire the funds",
-      "urgent wire",
-      "urgent payment",
-      "vendor payment",
-      // Executive impersonation, secrecy and isolation
-      "are you available",
-      "are you at your desk",
-      "are you in the office",
-      "quick favor",
-      "quick favour",
-      "quick task",
-      "i need a favor",
-      "i need a favour",
-      "can you handle a task",
-      "keep this confidential",
-      "keep this between us",
-      "strictly confidential",
-      "confidential transaction",
-      "confidential matter",
-      "sensitive transaction",
-      "do not discuss this",
-      "don't discuss this",
-      "don't mention this",
-      "i'm in a meeting",
-      "i am in a meeting",
-      "can't talk right now",
-      "cannot talk right now",
-      "reply by email only",
-      "send me your cell",
-      "send me your mobile number",
-      "purchase gift cards",
-      "buy gift cards",
-      "scratch the back",
-      "send me the codes",
-      "send the codes",
-    ],
-    // Fixed phrases only catch mail written the way the list expects. Real
-    // payment fraud writes "I'm currently in a meeting with our lawyers" and
-    // "process a wire transfer immediately", so the same ideas are matched as
-    // patterns too: the instruction, the bank-detail block, the excuse for not
-    // talking, and the demand for secrecy.
-    patterns: [
-      /\b(?:process|approve|release|initiate|arrange|complete|action)\s+(?:a|the|this)?\s*(?:urgent\s+|same[-\s]day\s+)?(?:bank\s+|wire\s+)?(?:transfer|payment|remittance|invoice)\b/gi,
-      /\bwire\s+(?:the\s+)?(?:funds|money|amount|total|\$[\d,.]+)\b/gi,
-      /\btransfer\s+(?:the\s+)?(?:funds|money|amount|\$[\d,.]+)\b/gi,
-      /\b(?:i\s*am|i'm)\s+(?:currently\s+)?(?:in|on)\s+(?:a\s+)?(?:meeting|call|conference)\b/gi,
-      /\b(?:cannot|can't|can\s+not|won't|will\s+not|unable\s+to)\s+(?:be\s+reached|be\s+contacted|talk|speak|discuss|call)\b/gi,
-      /\b(?:i\s+will\s+be|i'll\s+be|i\s+am)\s+unreachable\b/gi,
-      /\b(?:account|routing|swift|iban|sort\s*code|bic)\s*(?:number|code|no\.?)?\s*[:#](?=\s*[A-Z0-9])/gi,
-      /\bdo\s+not\s+(?:delay|discuss|tell|mention|share|inform)\b/gi,
-      /\bjust\s+handle\s+it\b/gi,
-      /\bsend\s+me\s+the\s+(?:confirmation|receipt|proof)\b/gi,
-    ],
-    weight: 1.4,
-    label: "BEC / Payment Fraud",
-  },
-};
+import { CATEGORIES, BROAD_WEIGHT } from "./keywords.js";
 
-// Simple language detection wordlists
-const LANGUAGE_MARKERS = {
-  en: {
-    words: [
-      "the",
-      "and",
-      "is",
-      "to",
-      "of",
-      "a",
-      "in",
-      "that",
-      "have",
-      "it",
-      "for",
-      "not",
-      "on",
-      "with",
-      "he",
-      "as",
-      "you",
-      "do",
-      "at",
-      "this",
-      "be",
-      "are",
-      "was",
-      "were",
-      "been",
-      "will",
-      "would",
-      "could",
-      "should",
-      "can",
-      "may",
-      "might",
-      "must",
-      "shall",
-      "has",
-      "had",
-      "did",
-      "does",
-      "doing",
-      "done",
-    ],
-    threshold: 0.2,
-  },
-  es: {
-    words: [
-      "el",
-      "la",
-      "de",
-      "que",
-      "y",
-      "a",
-      "en",
-      "un",
-      "ser",
-      "se",
-      "no",
-      "haber",
-      "por",
-      "con",
-      "su",
-      "para",
-      "como",
-      "estar",
-      "tener",
-    ],
-    threshold: 0.25,
-  },
-  fr: {
-    words: [
-      "le",
-      "de",
-      "et",
-      "à",
-      "un",
-      "il",
-      "être",
-      "avoir",
-      "ne",
-      "je",
-      "son",
-      "que",
-      "se",
-      "qui",
-      "ce",
-      "dans",
-      "en",
-      "du",
-      "elle",
-      "au",
-    ],
-    threshold: 0.25,
-  },
-  de: {
-    words: [
-      "der",
-      "die",
-      "und",
-      "in",
-      "den",
-      "von",
-      "zu",
-      "das",
-      "mit",
-      "sich",
-      "des",
-      "auf",
-      "für",
-      "ist",
-      "im",
-      "dem",
-      "nicht",
-      "ein",
-      "eine",
-    ],
-    threshold: 0.25,
-  },
-};
+// A category's broad words can add at most this much to its 0-100 score.
+const BROAD_CAP = 30;
+
+// Words, numbers and contractions ("don't", "i'm"). Everything else — spaces,
+// line breaks, hyphens, slashes, punctuation — separates words, so a phrase
+// still matches when it is split across a line or written with a hyphen.
+const WORD_RE = /[\p{L}\p{N}]+(?:'[\p{L}]+)*/gu;
+
+/** Lower-case, straight apostrophes, possessive dropped. */
+function normalizeToken(token) {
+  return token.toLowerCase().replace(/[’‘`]/g, "'").replace(/'s$/, "");
+}
+
+/** Keyword -> its normalised words. */
+function tokenize(text) {
+  return (String(text).replace(/[’‘`]/g, "'").match(WORD_RE) || []).map(normalizeToken);
+}
+
+/** The singular forms a word might be the plural of. */
+function singulars(token) {
+  const out = [token];
+  if (token.length > 3 && token.endsWith("ies")) out.push(token.slice(0, -3) + "y");
+  if (token.length > 3 && token.endsWith("es")) out.push(token.slice(0, -2));
+  if (token.length > 2 && token.endsWith("s")) out.push(token.slice(0, -1));
+  return out;
+}
+
+/** True when a text word is the keyword word, or a plural of it. */
+function sameWord(textToken, keywordToken, isLast) {
+  if (textToken === keywordToken) return true;
+  if (!isLast) return false;
+  return singulars(textToken).includes(keywordToken);
+}
+
+// ===== index, built once =====
+
+const INDEX = new Map(); // first keyword word -> [{ category, tier, tokens, term }]
+
+for (const [category, config] of Object.entries(CATEGORIES)) {
+  for (const tier of ["strong", "broad"]) {
+    for (const term of config[tier] || []) {
+      const tokens = tokenize(term);
+      if (!tokens.length) continue;
+      const entry = { category, tier, tokens, term };
+      if (!INDEX.has(tokens[0])) INDEX.set(tokens[0], []);
+      INDEX.get(tokens[0]).push(entry);
+    }
+  }
+}
+
+/** Every indexed term, for tests and for the curious. */
+export function keywordStats() {
+  const stats = {};
+  for (const [category, config] of Object.entries(CATEGORIES)) {
+    stats[category] = {
+      strong: (config.strong || []).length,
+      broad: (config.broad || []).length,
+      patterns: (config.patterns || []).length,
+    };
+  }
+  return stats;
+}
+
+// ===== matching =====
+
+function wordsWithPositions(text) {
+  const words = [];
+  for (const m of text.matchAll(WORD_RE)) {
+    words.push({ token: normalizeToken(m[0]), start: m.index, end: m.index + m[0].length });
+  }
+  return words;
+}
+
+/** Strong beats broad, then the longer match wins. */
+function better(a, b) {
+  if (!b) return true;
+  if (a.tier !== b.tier) return a.tier === "strong";
+  return a.length > b.length;
+}
+
+/** Remove overlaps inside one category, keeping the better of each pair. */
+function resolveOverlaps(matches) {
+  const sorted = [...matches].sort((a, b) => a.index - b.index || b.length - a.length);
+  const kept = [];
+  for (const m of sorted) {
+    const last = kept[kept.length - 1];
+    if (last && m.index < last.index + last.length) {
+      if (better(m, last)) kept[kept.length - 1] = m;
+      continue;
+    }
+    kept.push(m);
+  }
+  return kept;
+}
+
+function findMatches(text) {
+  const byCategory = Object.fromEntries(Object.keys(CATEGORIES).map((c) => [c, []]));
+  const words = wordsWithPositions(text);
+  const nextFree = {};
+
+  for (let i = 0; i < words.length; i++) {
+    const candidates = new Set();
+    for (const form of singulars(words[i].token)) {
+      for (const entry of INDEX.get(form) || []) candidates.add(entry);
+    }
+    if (!candidates.size) continue;
+
+    const best = {};
+    for (const entry of candidates) {
+      if ((nextFree[entry.category] || 0) > i) continue;
+      const n = entry.tokens.length;
+      if (i + n > words.length) continue;
+      let ok = true;
+      for (let k = 0; k < n; k++) {
+        if (!sameWord(words[i + k].token, entry.tokens[k], k === n - 1)) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) continue;
+      const start = words[i].start;
+      const end = words[i + n - 1].end;
+      const match = { index: start, length: end - start, tier: entry.tier, words: n };
+      if (better(match, best[entry.category])) best[entry.category] = match;
+    }
+
+    for (const [category, match] of Object.entries(best)) {
+      byCategory[category].push({
+        phrase: text.slice(match.index, match.index + match.length),
+        index: match.index,
+        length: match.length,
+        tier: match.tier,
+        category,
+      });
+      nextFree[category] = i + match.words;
+    }
+  }
+
+  // Patterns: money amounts, account numbers, wallet addresses, and the BEC
+  // wording no fixed phrase would catch.
+  for (const [category, config] of Object.entries(CATEGORIES)) {
+    for (const { re, tier } of config.patterns || []) {
+      const regex = new RegExp(re.source, re.flags.includes("g") ? re.flags : re.flags + "g");
+      let hit;
+      while ((hit = regex.exec(text)) !== null) {
+        const phrase = hit[0].trim();
+        if (phrase) {
+          byCategory[category].push({
+            phrase,
+            index: hit.index + hit[0].indexOf(phrase),
+            length: phrase.length,
+            tier,
+            category,
+          });
+        }
+        if (regex.lastIndex === hit.index) regex.lastIndex++;
+      }
+    }
+    byCategory[category] = resolveOverlaps(byCategory[category]);
+  }
+  return byCategory;
+}
 
 /**
- * Analyze text for urgency, authority, financial, and credential-harvesting patterns
+ * Analyze text for manipulation and fraud language.
  * @param {string} text - The email body text to analyze
- * @returns {Object} Analysis results with scores, matches, and highlighted text
+ * @returns {Object} categories, scores, matches and highlighted text
  */
 export function analyzeLanguage(text) {
   if (!text || typeof text !== "string") {
@@ -369,231 +190,146 @@ export function analyzeLanguage(text) {
       languageMismatch: false,
       highlightedText: "",
       summary: "No text provided for analysis",
+      matches: [],
     };
   }
 
-  const lowerText = text.toLowerCase();
+  // Same length as the original, so match positions map straight back.
+  const normalized = text.replace(/[’‘`]/g, "'").replace(/ /g, " ");
+  const found = findMatches(normalized);
   const categories = {};
   const allMatches = [];
 
-  // Analyze each category
-  for (const [categoryKey, config] of Object.entries(KEYWORD_PATTERNS)) {
-    const matches = [];
-
-    for (const keyword of config.keywords) {
-      // Whole words only. Plain substring matching made "irs" match "first",
-      // "court" match "courtesy" and "swift" match "swiftly", so ordinary
-      // business mail scored as fear tactics and fraud.
-      const regex = new RegExp(
-        `(?<![\\w])${keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w])`,
-        "gi",
-      );
-
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        matches.push({
-          phrase: match[0],
-          index: match.index,
-          length: match[0].length,
-        });
-        allMatches.push({
-          phrase: match[0],
-          index: match.index,
-          length: match[0].length,
-          category: categoryKey,
-        });
-      }
-    }
-
-    // Patterns cover the same ideas written in a way no fixed phrase list
-    // would catch.
-    for (const pattern of config.patterns || []) {
-      const regex = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : pattern.flags + "g");
-      let hit;
-      while ((hit = regex.exec(text)) !== null) {
-        const found = { phrase: hit[0].trim(), index: hit.index, length: hit[0].trim().length };
-        matches.push(found);
-        allMatches.push({ ...found, category: categoryKey });
-        if (hit.index === regex.lastIndex) regex.lastIndex++;
-      }
-    }
-
-    // Deduplicate matches (same phrase at same position)
-    const uniqueMatches = [];
-    const seen = new Set();
-    for (const match of matches) {
-      const key = `${match.index}-${match.phrase}`;
-      if (!seen.has(key)) {
-        seen.add(key);
-        uniqueMatches.push(match);
-      }
-    }
-
-    const score = Math.min(uniqueMatches.length * config.weight * 10, 100);
-
-    categories[categoryKey] = {
+  for (const [key, config] of Object.entries(CATEGORIES)) {
+    const matches = found[key].map((m) => ({ ...m, phrase: text.slice(m.index, m.index + m.length) }));
+    const strongCount = matches.filter((m) => m.tier === "strong").length;
+    const broadCount = matches.length - strongCount;
+    const strongPart = strongCount * config.weight * 10;
+    const broadPart = Math.min(broadCount * config.weight * 10 * BROAD_WEIGHT, BROAD_CAP);
+    categories[key] = {
       label: config.label,
-      score: Math.round(score),
-      matches: uniqueMatches,
-      matchCount: uniqueMatches.length,
+      score: Math.round(Math.min(strongPart + broadPart, 100)),
+      matches,
+      matchCount: matches.length,
+      strongCount,
+      broadCount,
       weight: config.weight,
     };
+    allMatches.push(...matches);
   }
 
-  // Calculate total score
   const totalScore = Math.min(
     Object.values(categories).reduce((sum, cat) => sum + cat.score, 0),
     100,
   );
 
-  // Detect language
-  const detectedLanguage = detectLanguage(text);
-
-  // Generate highlighted text
-  const highlightedText = generateHighlightedText(text, allMatches);
-
-  // Generate summary
-  const summary = generateSummary(categories, totalScore);
-
   return {
     categories,
     totalScore: Math.round(totalScore),
-    detectedLanguage,
+    detectedLanguage: detectLanguage(text),
     languageMismatch: false,
-    highlightedText,
-    summary,
+    highlightedText: generateHighlightedText(text, allMatches),
+    summary: generateSummary(categories),
     matches: allMatches,
   };
 }
 
-/**
- * Simple language detection based on common word frequency
- * @param {string} text - Text to analyze
- * @returns {string} Detected language code or "unknown"
- */
+// ===== language detection =====
+
+const LANGUAGE_MARKERS = {
+  en: {
+    words: ["the", "and", "is", "to", "of", "a", "in", "that", "have", "it", "for", "not", "on", "with", "he", "as", "you", "do", "at", "this", "be", "are", "was", "were", "been", "will", "would", "could", "should", "can", "may", "might", "must", "shall", "has", "had", "did", "does", "doing", "done"],
+    threshold: 0.2,
+  },
+  es: {
+    words: ["el", "la", "de", "que", "y", "a", "en", "un", "ser", "se", "no", "haber", "por", "con", "su", "para", "como", "estar", "tener"],
+    threshold: 0.25,
+  },
+  fr: {
+    words: ["le", "de", "et", "à", "un", "il", "être", "avoir", "ne", "je", "son", "que", "se", "qui", "ce", "dans", "en", "du", "elle", "au"],
+    threshold: 0.25,
+  },
+  de: {
+    words: ["der", "die", "und", "in", "den", "von", "zu", "das", "mit", "sich", "des", "auf", "für", "ist", "im", "dem", "nicht", "ein", "eine"],
+    threshold: 0.25,
+  },
+};
+
 function detectLanguage(text) {
   const words = text.toLowerCase().match(/\b\w+\b/g) || [];
-  const totalWords = words.length;
-
-  if (totalWords < 10) return "unknown";
+  if (words.length < 10) return "unknown";
 
   let bestLang = "unknown";
   let bestScore = 0;
-
   for (const [lang, config] of Object.entries(LANGUAGE_MARKERS)) {
-    const matches = words.filter((word) => config.words.includes(word)).length;
-    const score = matches / totalWords;
-
+    const score = words.filter((word) => config.words.includes(word)).length / words.length;
     if (score > config.threshold && score > bestScore) {
       bestScore = score;
       bestLang = lang;
     }
   }
-
   return bestLang;
 }
 
+// ===== presentation =====
+
 /**
- * Generate HTML with highlighted phrases
- * @param {string} text - Original text
- * @param {Array} matches - Array of match objects
- * @returns {string} HTML with highlighted spans
+ * The text with every match wrapped in <mark>. Overlapping matches (the same
+ * words in two categories) merge into one mark carrying every category; a mark
+ * made only of broad words is styled more quietly.
  */
 function generateHighlightedText(text, matches) {
   if (!matches.length) return escapeHtml(text);
 
-  // Sort matches by index
-  matches.sort((a, b) => a.index - b.index);
-
-  // Merge overlapping matches
+  const sorted = [...matches].sort((a, b) => a.index - b.index);
   const merged = [];
-  for (const match of matches) {
+  for (const m of sorted) {
     const last = merged[merged.length - 1];
-    if (last && match.index < last.index + last.length) {
-      last.length = Math.max(
-        last.length,
-        match.index + match.length - last.index,
-      );
-      last.categories = last.categories || [last.category];
-      if (!last.categories.includes(match.category)) {
-        last.categories.push(match.category);
-      }
+    if (last && m.index < last.index + last.length) {
+      last.length = Math.max(last.length, m.index + m.length - last.index);
+      if (!last.categories.includes(m.category)) last.categories.push(m.category);
+      if (m.tier === "strong") last.strong = true;
     } else {
-      merged.push({
-        index: match.index,
-        length: match.length,
-        category: match.category,
-        categories: [match.category],
-      });
+      merged.push({ index: m.index, length: m.length, categories: [m.category], strong: m.tier === "strong" });
     }
   }
 
-  // Build HTML
   let result = "";
   let lastIndex = 0;
-
-  for (const match of merged) {
-    result += escapeHtml(text.substring(lastIndex, match.index));
-    const matchedText = text.substring(match.index, match.index + match.length);
-    result += `<mark class="highlight-${match.category}" title="${getCategoryLabel(match.category)}">${escapeHtml(matchedText)}</mark>`;
-    lastIndex = match.index + match.length;
+  for (const m of merged) {
+    result += escapeHtml(text.substring(lastIndex, m.index));
+    const primary = m.categories[0];
+    const labels = m.categories.map(getCategoryLabel).join(", ");
+    result += `<mark class="highlight-${primary}${m.strong ? "" : " broad"}" title="${escapeHtml(labels)}${m.strong ? "" : " (broad term)"}">${escapeHtml(text.substring(m.index, m.index + m.length))}</mark>`;
+    lastIndex = m.index + m.length;
   }
-
-  result += escapeHtml(text.substring(lastIndex));
-  return result;
+  return result + escapeHtml(text.substring(lastIndex));
 }
 
-/**
- * Get human-readable label for a category
- * @param {string} category - Category key
- * @returns {string} Human-readable label
- */
 function getCategoryLabel(category) {
-  const labels = {
-    urgency: "Urgency indicator",
-    authority: "Authority/Fear tactic",
-    financial: "Financial fraud indicator",
-    credential: "Credential harvesting attempt",
-    bec: "BEC / payment fraud indicator",
-  };
-  return labels[category] || category;
+  return CATEGORIES[category]?.label || category;
 }
 
-/**
- * Generate analysis summary
- * @param {Object} categories - Category analysis results
- * @param {number} totalScore - Total risk score
- * @returns {string} Human-readable summary
- */
-function generateSummary(categories, totalScore) {
-  const parts = [];
-
-  for (const [key, cat] of Object.entries(categories)) {
-    if (cat.matchCount > 0) {
-      parts.push(
-        `${cat.matchCount} ${cat.label.toLowerCase()} phrase${cat.matchCount > 1 ? "s" : ""}`,
-      );
+function generateSummary(categories) {
+  const strong = [];
+  let broad = 0;
+  for (const cat of Object.values(categories)) {
+    if (cat.strongCount) {
+      strong.push(`${cat.strongCount} ${cat.label.toLowerCase()} phrase${cat.strongCount > 1 ? "s" : ""}`);
     }
+    broad += cat.broadCount;
   }
-
-  if (parts.length === 0) {
-    return "No suspicious language patterns detected.";
-  }
-
-  return `Detected: ${parts.join(", ")}.`;
+  const also = broad ? ` Also noted: ${broad} broader money, pressure or persuasion term${broad === 1 ? "" : "s"}.` : "";
+  if (!strong.length) return `No suspicious phrases detected.${also}`;
+  return `Detected: ${strong.join(", ")}.${also}`;
 }
 
-/**
- * Escape HTML special characters
- * @param {string} text - Text to escape
- * @returns {string} Escaped text
- */
 function escapeHtml(text) {
   if (!text) return "";
   return text
-    .replace(/&/g, "&" + "amp;")
-    .replace(/</g, "&" + "lt;")
-    .replace(/>/g, "&" + "gt;")
-    .replace(/"/g, "&" + "quot;")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
 }
