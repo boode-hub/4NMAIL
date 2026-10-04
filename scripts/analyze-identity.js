@@ -107,13 +107,69 @@ export function levenshtein(a, b) {
   return prev[b.length];
 }
 
-const brandOf = (name) => BRANDS.find(([b]) => b === name);
+// ===== the analyst's own organisation =====
+//
+// The public brand list protects PayPal and Microsoft. Internal-impersonation
+// fraud — "yourc0mpany.com", "yourcompany-payroll.com" — needs the analyst's
+// own domains, which only the analyst can supply. Optional; any number.
+
+const OWN = []; // [{ name, domains: [orgDomain], own: true }]
+
+const DOMAIN_RE = /^(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/;
+
+/**
+ * Parse what the analyst typed: one domain per line or comma-separated, with
+ * or without "https://", "www.", a path or an "@". Returns the valid domains
+ * and the entries that were not domains, so the UI can say which were ignored.
+ */
+export function parseDomainList(text) {
+  const valid = [];
+  const invalid = [];
+  for (const raw of String(text || "").split(/[\s,;]+/)) {
+    const entry = raw.trim();
+    if (!entry) continue;
+    const domain = entry
+      .toLowerCase()
+      .replace(/^[a-z]+:\/\//, "")
+      .replace(/^.*@/, "")
+      .replace(/[/?#].*$/, "")
+      .replace(/^www\./, "")
+      .replace(/\.$/, "");
+    if (DOMAIN_RE.test(domain)) {
+      if (!valid.includes(domain)) valid.push(domain);
+    } else invalid.push(entry);
+  }
+  return { valid, invalid };
+}
+
+/** Replace the protected own-organisation domains (an empty list turns it off). */
+export function setProtectedDomains(domains = []) {
+  OWN.length = 0;
+  const seen = new Set();
+  for (const d of domains) {
+    const org = orgDomain(String(d).toLowerCase());
+    if (!org || seen.has(org)) continue;
+    seen.add(org);
+    OWN.push({ name: org.split(".")[0], domains: [org], own: true });
+  }
+}
+
+export function protectedDomains() {
+  return OWN.map((o) => o.domains[0]);
+}
+
+/** Public brands and the analyst's own domains, in one list. */
+function entries() {
+  return [...OWN, ...BRANDS.map(([name, domains]) => ({ name, domains, own: false }))];
+}
+
+const brandOf = (name) => entries().find((e) => e.name === name);
 
 /** Does this hostname legitimately belong to the brand? */
 function isBrandDomain(host, brand) {
   const org = orgDomain(host);
   const entry = brandOf(brand);
-  return !!org && !!entry && entry[1].some((d) => org === d);
+  return !!org && !!entry && entry.domains.some((d) => org === d);
 }
 
 /**
@@ -134,30 +190,39 @@ export function lookalikeOf(host) {
   const flat = skeleton(h.replace(/\.[a-z.]+$/, ""));
   const nameSkeleton = skeleton(name);
 
-  for (const [brand] of BRANDS) {
-    if (isBrandDomain(h, brand)) return null;
-  }
+  const all = entries();
+  if (all.some((e) => e.domains.includes(org))) return null;
+  const hit = (e, kind) => ({ brand: e.name, kind, host: h, own: e.own });
 
-  for (const [brand] of BRANDS) {
-    if (nameSkeleton === brand && name !== brand) {
-      return { brand, kind: "confusable", host: h };
-    }
+  for (const e of all) {
+    if (nameSkeleton === e.name && name !== e.name) return hit(e, "confusable");
   }
-  for (const [brand] of BRANDS) {
-    if (brand.length < 5) continue;
-    const distance = levenshtein(nameSkeleton, brand);
-    if (distance > 0 && distance <= (brand.length >= 8 ? 2 : 1)) {
-      return { brand, kind: "typosquat", host: h };
-    }
+  // Your own name on another ending: yourcompany.co for yourcompany.com. Only
+  // for your domains — public brands own many endings the list does not hold.
+  for (const e of OWN) {
+    if (name === e.name) return hit(e, "tld-swap");
   }
-  for (const [brand] of BRANDS) {
-    if (brand.length < 4) continue;
+  for (const e of all) {
+    if (e.name.length < 5) continue;
+    const distance = levenshtein(nameSkeleton, e.name);
+    if (distance > 0 && distance <= (e.name.length >= 8 ? 2 : 1)) return hit(e, "typosquat");
+  }
+  for (const e of all) {
+    if (e.name.length < 4) continue;
     // The brand as its own word somewhere in the name: "paypal-billing.tld",
     // "secure.apple.evil.tld". Skipped when it is simply part of a longer word.
-    const parts = flat === brand ? [] : h.split(/[.\-_]/).map(skeleton);
-    if (parts.includes(brand)) return { brand, kind: "contains", host: h };
+    const parts = flat === e.name ? [] : h.split(/[.\-_]/).map(skeleton);
+    if (parts.includes(e.name)) return hit(e, "contains");
   }
   return null;
+}
+
+function describeLookalike(look) {
+  const whose = look.own ? "your domain" : `"${look.brand}"`;
+  if (look.kind === "confusable") return `reads as ${whose} but is spelled differently`;
+  if (look.kind === "typosquat") return `is one or two characters away from ${whose}`;
+  if (look.kind === "tld-swap") return `has your organization's name on a different ending`;
+  return `uses ${look.own ? "your organization's name" : `"${look.brand}"`} inside a domain that is not ${look.own ? "yours" : `${look.brand}'s`}`;
 }
 
 const emailIn = (text) =>
@@ -198,14 +263,14 @@ export function analyzeIdentity(headers) {
   // 2. The display name names a brand the sending domain does not belong to.
   if (displayName && fromDomain) {
     const words = skeleton(displayName);
-    for (const [brand] of BRANDS) {
-      if (brand.length < 4 || !words.includes(brand)) continue;
-      if (isBrandDomain(fromDomain, brand)) break;
+    for (const e of entries()) {
+      if (e.name.length < 4 || !words.includes(e.name)) continue;
+      if (isBrandDomain(fromDomain, e.name)) break;
       add(
-        "display-name-brand",
+        e.own ? "display-name-own" : "display-name-brand",
         "high",
-        `The display name claims to be ${brand}`,
-        `"${displayName}" is not sent from a ${brand} domain — it comes from ${fromDomain}.`,
+        e.own ? `The display name claims to be your organization (${e.name})` : `The display name claims to be ${e.name}`,
+        `"${displayName}" is not sent from ${e.own ? `your domain ${e.domains[0]}` : `a ${e.name} domain`} — it comes from ${fromDomain}.`,
       );
       break;
     }
@@ -214,17 +279,23 @@ export function analyzeIdentity(headers) {
   // 3. The sending domain itself imitates a brand.
   const look = fromDomain ? lookalikeOf(fromDomain) : null;
   if (look) {
-    const how =
-      look.kind === "confusable"
-        ? `reads as "${look.brand}" but is spelled differently`
-        : look.kind === "typosquat"
-          ? `is one or two characters away from "${look.brand}"`
-          : `uses "${look.brand}" as part of a domain that is not ${look.brand}'s`;
     add(
-      `lookalike-${look.kind}`,
+      look.own ? `own-lookalike-${look.kind}` : `lookalike-${look.kind}`,
       "high",
-      `The sending domain imitates ${look.brand}`,
-      `${fromDomain} ${how}.`,
+      look.own ? "The sending domain imitates your organization's domain" : `The sending domain imitates ${look.brand}`,
+      `${fromDomain} ${describeLookalike(look)}.`,
+    );
+  }
+
+  // Replies steered to a lookalike of your own domain: the inbox the attacker
+  // reads, dressed as a colleague's.
+  const replyLook = headers?.replyTo?.email ? lookalikeOf(domainOf(headers.replyTo.email)) : null;
+  if (replyLook?.own && !look?.own) {
+    add(
+      "own-lookalike-replyto",
+      "high",
+      "Replies would go to a lookalike of your domain",
+      `Reply-To is ${headers.replyTo.email}, which ${describeLookalike(replyLook)}.`,
     );
   }
 

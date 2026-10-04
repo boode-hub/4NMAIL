@@ -24,6 +24,12 @@ const FIELDS = [
     tone: (a) =>
       a.score?.tier === "High Risk" ? "bad" : a.score?.tier === "Suspicious" ? "warn" : "good",
   },
+  {
+    key: "attackType",
+    label: "Looks like",
+    get: (a) => (a.score?.attackTypes || []).join(", ") || "—",
+    tone: (a) => ((a.score?.attackTypes || []).length ? "bad" : "muted"),
+  },
   { key: "topReason", label: "Main reason", get: (a) => (a.score?.reasons || [])[0] || dash },
   {
     key: "spf",

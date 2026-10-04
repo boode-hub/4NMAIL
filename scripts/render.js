@@ -2,6 +2,7 @@ import { isValidIP, isRoutableIP, findIPs } from "./ip-utils.js";
 import { URL_DECODERS, detectEncodings, safeRun } from "./url-decode.js";
 import { buildPreview, textAsPreview, describePreview } from "./preview.js";
 import { looksLikeHtml } from "./html-inspect.js";
+import { revealControls } from "./analyze-unicode.js";
 
 // Rows rendered per IOC table before the rest are collapsed behind a button.
 // A bulk HTML email routinely carries 100+ links; rendering them all built
@@ -60,6 +61,7 @@ export async function renderSummary(container, analysis, apiKeys) {
   const topReasons = (sc.reasons || []).slice(0, 3);
   html += `<div class="summary-verdict ${tierClass}">
     <div class="summary-verdict-main"><span class="summary-verdict-tier">${esc(sc.tier || "Unknown")}</span><span class="summary-verdict-score">${sc.score ?? 0}/100</span></div>
+    ${(sc.attackTypes || []).length ? `<div class="summary-attack"><span class="summary-attack-label">Looks like</span>${sc.attackTypes.map((t) => `<span class="attack-chip">${esc(t)}</span>`).join("")}</div>` : ""}
     ${topReasons.length ? `<ul class="summary-verdict-reasons">${topReasons.map((r) => `<li>${esc(r)}</li>`).join("")}</ul>` : ""}
     ${(sc.caveats || []).map((c) => `<div class="summary-caveat">&#9888; ${esc(c)}</div>`).join("")}
   </div>`;
@@ -343,7 +345,10 @@ export function whoisPanel(kind, value) {
   return `<details class="whois-panel" data-kind="${esc(kind)}" data-value="${esc(value)}"><summary>WHOIS &amp; registration</summary><div class="whois-body"><span class="whois-loading">Opening…</span></div></details>`;
 }
 
-/** Sender identity findings: display-name tricks and lookalike domains. */
+/**
+ * Deception checks: display-name tricks, lookalike domains, fabricated
+ * threads and Unicode tricks — everything that is about appearances.
+ */
 function renderIdentityCard(identity) {
   const findings = identity?.findings || [];
   if (!findings.length) return "";
@@ -351,7 +356,7 @@ function renderIdentityCard(identity) {
   return `<div class="identity-card risk-border-${worst}">
     <div class="card-header">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">${ICONS.user}</svg>
-      <h3>Sender identity</h3>
+      <h3>Deception checks</h3>
       <span class="identity-count ${worst}">${findings.length}</span>
     </div>
     <ul class="identity-list">${findings
@@ -872,7 +877,7 @@ function renderIOCSection(id, title, items, type, apiKeys, showAll) {
       const whoisHtml =
         type === "domain" || type === "ip" ? whoisPanel(type, value) : "";
 
-      return `<tr class="ioc-row"><td class="ioc-value-cell"><span class="ioc-original mono">${esc(value)}</span><span class="ioc-defanged mono hidden">${esc(defanged)}</span>${hashHtml}${decodeHtml}${whoisHtml}</td><td class="ioc-risk-cell">${riskHtml}</td><td class="ioc-actions"><button class="btn-sm" data-act="copy-ioc" title="Copy">Copy</button><button class="btn-sm" data-act="defang" title="Defang">Defang</button>${
+      return `<tr class="ioc-row"><td class="ioc-value-cell"><span class="ioc-original mono">${esc(revealControls(value))}</span><span class="ioc-defanged mono hidden">${esc(revealControls(defanged))}</span>${hashHtml}${decodeHtml}${whoisHtml}</td><td class="ioc-risk-cell">${riskHtml}</td><td class="ioc-actions"><button class="btn-sm" data-act="copy-ioc" title="Copy">Copy</button><button class="btn-sm" data-act="defang" title="Defang">Defang</button>${
         type === "attachment" && item.sha256
           ? `<button class="btn-sm btn-save" data-act="save-zip" data-sha="${esc(item.sha256)}" title="Download inside a ZIP protected with the password &quot;infected&quot; — it cannot be run by accident or deleted by antivirus">Save zip</button><button class="btn-sm" data-act="save-raw" data-sha="${esc(item.sha256)}" title="Download the file itself (asks first; programs get .bin added)">Raw</button>`
           : ""

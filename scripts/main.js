@@ -7,8 +7,9 @@ import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs } from "./extract-iocs.js";
 import { analyzeLanguage } from "./analyze-language.js";
-import { analyzeIdentity } from "./analyze-identity.js";
+import { analyzeIdentity, setProtectedDomains, parseDomainList, protectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
+import { analyzeUnicode } from "./analyze-unicode.js";
 import { buildPreview, describePreview } from "./preview.js";
 import { zipEncrypted, safeFilename, decodeToBytes, ZIP_PASSWORD } from "./file-export.js";
 import { sniffFileType } from "./file-type.js";
@@ -148,6 +149,13 @@ async function cachedLookup(key, fn) {
 // Apply the saved theme colour before anything renders.
 applyAccent(loadAccent());
 
+// The analyst's own domains, protected against lookalikes (optional).
+try {
+  setProtectedDomains(JSON.parse(localStorage.getItem("own-domains") || "[]"));
+} catch {
+  setProtectedDomains([]);
+}
+
 // Safely get localStorage value
 try {
   apiKeys.virustotal = localStorage.getItem("vt-api-key") || "";
@@ -184,6 +192,7 @@ function queryElements() {
     apiAvailability: "api-availability",
     proxyField: "proxy-field",
     rememberKeys: "remember-keys",
+    ownDomains: "own-domains",
     accentColor: "accent-color",
     accentValue: "accent-value",
     resetAccent: "reset-accent",
@@ -212,6 +221,7 @@ function init() {
     elements.corsProxyUrlInput.value = apiKeys.corsProxyUrl;
   }
   if (elements.rememberKeys) elements.rememberKeys.checked = rememberKeys();
+  if (elements.ownDomains) elements.ownDomains.value = protectedDomains().join("\n");
 
   // Event Listeners
   if (elements.analyzeBtn) {
@@ -222,6 +232,24 @@ function init() {
   }
   if (elements.fileUpload) {
     elements.fileUpload.addEventListener("change", handleFileUpload);
+    // Drop files anywhere on the page: one loads, several become a batch.
+    const panel = document.getElementById("input-section");
+    for (const type of ["dragenter", "dragover"]) {
+      document.addEventListener(type, (e) => {
+        if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+        e.preventDefault();
+        panel?.classList.add("dropping");
+      });
+    }
+    document.addEventListener("dragleave", (e) => {
+      if (e.target === document.documentElement || e.relatedTarget === null) panel?.classList.remove("dropping");
+    });
+    document.addEventListener("drop", (e) => {
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault();
+      panel?.classList.remove("dropping");
+      handleFileUpload({ target: { files: e.dataTransfer.files } });
+    });
   }
   if (elements.settingsBtn) {
     elements.settingsBtn.addEventListener("click", () => {
@@ -360,6 +388,9 @@ async function buildAnalysis(input) {
   // talking, so its findings join the identity findings (and are scored there).
   const thread = analyzeThread(headers, body);
   identity.findings.push(...thread.findings);
+  // Text made to read differently from what it is: hidden direction controls,
+  // invisible characters inside words, letters borrowed from another alphabet.
+  identity.findings.push(...analyzeUnicode(headers, body, iocs.attachments));
   const score = calculateScore(auth, iocs, languageAnalysis, headers, identity);
 
   return {
@@ -727,6 +758,22 @@ function handleSaveSettings() {
     ? elements.corsProxyUrlInput.value.trim()
     : "";
 
+  // Your organization's domains: optional, any number. Unparseable entries are
+  // named rather than silently dropped.
+  let domainNote = "";
+  if (elements.ownDomains) {
+    const { valid, invalid } = parseDomainList(elements.ownDomains.value);
+    setProtectedDomains(valid);
+    elements.ownDomains.value = protectedDomains().join("\n");
+    try {
+      if (valid.length) localStorage.setItem("own-domains", JSON.stringify(protectedDomains()));
+      else localStorage.removeItem("own-domains");
+    } catch {
+      /* storage blocked: the list still applies for this visit */
+    }
+    if (invalid.length) domainNote = ` Ignored (not domains): ${invalid.join(", ")}.`;
+  }
+
   const remember = elements.rememberKeys ? elements.rememberKeys.checked : true;
   try {
     localStorage.setItem("remember-keys", remember ? "1" : "0");
@@ -746,10 +793,12 @@ function handleSaveSettings() {
     elements.settingsModal.classList.add("hidden");
   }
   showStatus(
-    remember
+    (remember
       ? "Settings saved!"
-      : "Settings saved for this tab only — nothing was written to browser storage.",
-    "success",
+      : "Settings saved for this tab only — nothing was written to browser storage.") +
+      (protectedDomains().length ? ` Protecting ${protectedDomains().length} domain${protectedDomains().length === 1 ? "" : "s"} of yours — applies from the next analysis.` : "") +
+      domainNote,
+    domainNote ? "info" : "success",
   );
 }
 

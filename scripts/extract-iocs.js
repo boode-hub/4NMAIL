@@ -13,6 +13,7 @@ import { unwrapRedirect } from "./url-decode.js";
 import { lookalikeOf } from "./analyze-identity.js";
 import { inspectAttachment, extensionOf } from "./file-type.js";
 import { inspectHtml } from "./html-inspect.js";
+import { hasBidiControl, stripControls } from "./analyze-unicode.js";
 
 // Known URL shorteners
 const URL_SHORTENERS = [
@@ -454,9 +455,9 @@ function deduplicateAndFlag(iocs) {
       if (look) {
         flag(
           "high",
-          `Imitates ${look.brand}`,
+          look.own ? "Imitates your domain" : `Imitates ${look.brand}`,
           "brand-lookalike",
-          `${parsed.hostname} imitates ${look.brand} (${look.kind})`,
+          `${parsed.hostname} imitates ${look.own ? "your organization's domain" : look.brand} (${look.kind})`,
         );
       }
 
@@ -613,8 +614,18 @@ function deduplicateAndFlag(iocs) {
     att.risks = [];
     att.risky = false;
 
+    // A text-direction control in a file name: "invoice‮fdp.exe" displays as
+    // "invoiceexe.pdf". Every other check below judges the real name.
+    if (hasBidiControl(att.value)) {
+      att.riskFlags.push({ type: "high", label: "Hidden extension (RTLO)" });
+      att.risks.push({ type: "rtlo-name", level: "high", message: "The name uses a text-direction control to hide its real extension" });
+      att.risky = true;
+      att.realName = stripControls(att.value);
+    }
+    const realName = att.realName || att.value;
+
     // Check for double extension
-    if (DOUBLE_EXT_PATTERNS.some((p) => p.test(att.value))) {
+    if (DOUBLE_EXT_PATTERNS.some((p) => p.test(realName))) {
       att.riskFlags.push({ type: "high", label: "Double Extension" });
       att.risks.push({
         type: "double-extension",
@@ -666,7 +677,7 @@ function deduplicateAndFlag(iocs) {
     }
 
     // Check for risky extension
-    const ext = getExtension(att.value);
+    const ext = getExtension(realName);
     if (RISKY_EXTENSIONS.includes(ext)) {
       att.riskFlags.push({ type: "high", label: `Risky: ${ext}` });
       att.risks.push({

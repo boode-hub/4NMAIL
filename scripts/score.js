@@ -83,6 +83,7 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
   ];
 
   return {
+    attackTypes: classifyAttack(auth, iocs, languageAnalysis, identity),
     tier:
       total >= TIER_HIGH
         ? "High Risk"
@@ -127,6 +128,47 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
 }
 
 /**
+ * What kind of attack this looks like, in the words an analyst puts in a
+ * ticket. Built only from signals already found; several can apply at once.
+ */
+export function classifyAttack(auth, iocs, lang, identity) {
+  const types = [];
+  const strong = (k) => lang?.categories?.[k]?.strongCount ?? 0;
+  const has = (items, ...riskTypes) => items.some((i) => (i.risks || []).some((r) => riskTypes.includes(r.type)));
+  const urls = iocs?.urls || [];
+  const files = iocs?.attachments || [];
+  const ids = (identity?.findings || []).map((f) => f.id || "");
+
+  if (strong("bec") >= 2 || ids.includes("thread-payment")) types.push("BEC / payment fraud");
+  if (
+    has(urls, "credential-form", "exfil-endpoint") ||
+    has(files, "login-form", "exfil") ||
+    iocs?.bodyFindings?.passwordForm ||
+    (strong("credential") >= 1 && (urls.length > 0 || files.length > 0))
+  ) {
+    types.push("Credential phishing");
+  }
+  // A login page is credential phishing, not malware; anything else risky is.
+  const malwareFile = (f) => f.risky && !(f.risks || []).every((r) => ["login-form", "exfil", "hidden-layer"].includes(r.type));
+  if (
+    files.some(malwareFile) ||
+    has(urls, "direct-download") ||
+    has(files, "macros", "smuggled-file", "executable-content", "archive-executable")
+  ) {
+    types.push("Malware delivery");
+  }
+  if (strong("extortion") >= 2) types.push("Extortion / sextortion");
+  if (strong("advancefee") >= 3) types.push("Advance-fee scam");
+  // A phone number offered as the fix, with nothing to click: callback phishing.
+  const callback = (lang?.categories?.social?.matches || []).some((m) => m.tier === "strong" && /\d[\d\s().-]{7,}\d/.test(m.phrase));
+  if (callback && !urls.some((u) => !/^mailto:/i.test(u.value))) types.push("Callback phishing");
+  if (strong("lure") >= 2) types.push("Prize / reward scam");
+  if (ids.some((i) => /lookalike|display-name|own-|mixed-script|thread-impersonation/.test(i))) types.push("Impersonation");
+  if (auth?.mechanisms?.dmarc?.status === "fail" || auth?.domainAlignment?.dmarcAligned === false) types.push("Sender spoofing");
+  return types;
+}
+
+/**
  * Evidence that is conclusive on its own. Nothing legitimate posts form data to
  * a Telegram bot, hides a file inside an HTML page to write it to disk, or
  * sends a Windows program under a document's name.
@@ -157,6 +199,11 @@ function decisiveFindings(iocs, identity) {
 
   const smuggling = files.filter((f) => has(f, "smuggled-file"));
   if (smuggling.length) high.push(`Decisive: ${names(smuggling)} hides a file inside itself and writes it to disk (HTML smuggling)`);
+
+  const disguisedNames = files.filter((f) => has(f, "rtlo-name"));
+  if (disguisedNames.length) {
+    high.push(`Decisive: a file name hides its real extension (${disguisedNames.map((f) => f.realName).slice(0, 2).join(", ")})`);
+  }
 
   const programs = files.filter((f) => has(f, "executable-content"));
   if (programs.length) high.push(`Decisive: ${names(programs)} is a program, whatever its name says`);

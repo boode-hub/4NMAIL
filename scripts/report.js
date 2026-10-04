@@ -8,6 +8,8 @@
 // turn into a clickable link. Hashes are left intact: they cannot be clicked,
 // and an analyst needs to paste them into lookups exactly as they are.
 
+import { revealControls } from "./analyze-unicode.js";
+
 // ===== Defanging =====
 
 /** hxxps[://]evil[.]test/path — scheme and host neutralised, path readable. */
@@ -266,6 +268,7 @@ export function buildHtmlReport(analysis, { lookups = new Map(), local = new Map
     <div class="hero-verdict">
       <div class="eyebrow">Verdict</div>
       <div class="hero-tier">${esc(tier)}</div>
+      ${(score.attackTypes || []).length ? `<div class="hero-attack">Looks like: ${esc(score.attackTypes.join(" · "))}</div>` : ""}
       <div class="hero-score"><strong>${total}</strong><span>/100</span></div>
       <div class="meter"><div class="meter-fill ${tone}" style="width:${total}%"></div></div>
     </div>
@@ -303,8 +306,8 @@ export function buildHtmlReport(analysis, { lookups = new Map(), local = new Map
   const identityPanel = identityFindings.length
     ? panel(
         "identity",
-        "Sender identity",
-        `<p class="dim small lead">Who the message claims to be from. Authentication cannot answer this: a display name and a lookalike domain both pass every check.</p>${identityFindings
+        "Deception checks",
+        `<p class="dim small lead">How the message tries to look like something it is not — display names, lookalike domains, fabricated threads, hidden characters. Authentication cannot answer this: all of them can pass every check.</p>${identityFindings
           .map(
             (f) =>
               `<div class="callout ${f.severity === "high" ? "bad" : "warn"}"><strong>${esc(defangText(f.title))}</strong><div>${esc(defangText(f.detail))}</div></div>`,
@@ -513,7 +516,7 @@ export function buildHtmlReport(analysis, { lookups = new Map(), local = new Map
     ? `<div class="file-grid">${files
         .map(
           (f) => `<div class="file-card">
-            <div class="file-name">${esc(f.value || "unnamed")}${f.inline ? ' <span class="pill muted">inline</span>' : ""}</div>
+            <div class="file-name">${esc(revealControls(f.value || "unnamed"))}${f.inline ? ' <span class="pill muted">inline</span>' : ""}</div>
             <div class="file-flags">${flagPills(f)}</div>
             ${kv([
               ["Type", esc(f.contentType || "unknown")],
@@ -685,6 +688,7 @@ h3{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13px;font-we
 .callout.bad{color:var(--bad);background:var(--bad-bg);border-color:var(--bad-border)}
 .callout.warn{color:var(--warn);background:var(--warn-bg);border-color:var(--warn-border)}
 
+.hero-attack{margin-top:6px;font-size:13px;font-weight:600;color:var(--text)}
 .score-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:4px}
 .score-card{background:var(--elev);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
 .score-head{display:flex;justify-content:space-between;align-items:baseline}
@@ -830,7 +834,8 @@ export function buildCsvReport(analysis, { lookups = new Map(), local = new Map(
   }
   for (const e of iocs.emails || []) add("email", e.value, defangEmail(e.value), e.source, flags(e), "");
   for (const f of iocs.attachments || []) {
-    const name = f.value || "unnamed";
+    // Spelled out: a direction control would reverse the name in a spreadsheet too.
+    const name = revealControls(f.value || "unnamed");
     const meta = `${f.contentType || "unknown type"}; ${formatBytes(f.size)}${f.inline ? "; inline" : ""}`;
     add("filename", name, name, f.inline ? "Inline" : "Attachment", flags(f), meta);
     if (f.sha256) add("sha256", f.sha256, f.sha256, "Attachment", flags(f), `file: ${name}`, name);
@@ -879,6 +884,7 @@ export function buildJsonReport(analysis, { lookups = new Map(), local = new Map
       generated: now.toISOString(),
       verdict: {
         tier: score.tier || "Unknown",
+        attackTypes: score.attackTypes || [],
         score: score.score ?? null,
         breakdown: score.breakdown || {},
         reasons: score.reasons || [],

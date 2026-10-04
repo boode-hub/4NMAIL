@@ -3505,3 +3505,58 @@ mark.highlight-bec.broad { text-decoration-color: var(--purple); }
     min-height: 40px;
   }
 }
+
+
+/* ===== OWN DOMAINS ===== */
+#own-domains {
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--bg-deep);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.5rem 0.75rem;
+  font: 12px/1.5 "JetBrains Mono", monospace;
+  resize: vertical;
+}
+#own-domains:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.optional {
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+
+/* ===== ATTACK TYPE ===== */
+.summary-attack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.4rem;
+}
+.summary-attack-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-right: 0.15rem;
+}
+.attack-chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 0.1rem 0.55rem;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--red-border);
+  background: var(--red-bg);
+  color: var(--red);
+}
+
+/* ===== DRAG AND DROP ===== */
+#input-section.dropping {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-border), 0 0 24px var(--accent-glow);
+}

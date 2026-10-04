@@ -10,8 +10,9 @@ import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs } from "./extract-iocs.js";
 import { analyzeLanguage } from "./analyze-language.js";
-import { analyzeIdentity } from "./analyze-identity.js";
+import { analyzeIdentity, setProtectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
+import { analyzeUnicode } from "./analyze-unicode.js";
 import { calculateScore } from "./score.js";
 import { sha256Bytes, md5Bytes } from "./hash-utils.js";
 import { buildComparison, comparisonCsv, comparisonJson } from "./compare-model.js";
@@ -24,6 +25,11 @@ if (window.top !== window.self) {
 }
 
 applyAccent(loadAccent());
+try {
+  setProtectedDomains(JSON.parse(localStorage.getItem("own-domains") || "[]"));
+} catch {
+  setProtectedDomains([]);
+}
 
 const EMAIL_HEADERS = [
   "from", "to", "subject", "date", "received", "message-id", "return-path",
@@ -69,6 +75,9 @@ async function analyse(raw) {
   // talking, so its findings join the identity findings (and are scored there).
   const thread = analyzeThread(headers, body);
   identity.findings.push(...thread.findings);
+  // Text made to read differently from what it is: hidden direction controls,
+  // invisible characters inside words, letters borrowed from another alphabet.
+  identity.findings.push(...analyzeUnicode(headers, body, iocs.attachments));
   const score = calculateScore(auth, iocs, languageAnalysis, headers, identity);
   return { headers, auth, body, iocs, languageAnalysis, identity, thread, score };
 }
