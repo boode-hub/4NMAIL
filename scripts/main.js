@@ -10,6 +10,8 @@ import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
 import { buildPreview, describePreview } from "./preview.js";
+import { zipEncrypted, safeFilename, decodeToBytes, ZIP_PASSWORD } from "./file-export.js";
+import { sniffFileType } from "./file-type.js";
 import { calculateScore } from "./score.js";
 import { sha256, sha256Bytes, md5Bytes } from "./hash-utils.js";
 import { isValidIP, isRoutableIP } from "./ip-utils.js";
@@ -399,6 +401,11 @@ async function handleAnalyze() {
     currentAnalysis = analysis;
     attachmentContentMap.clear();
     for (const [name, bytes] of analysis.files) attachmentContentMap.set(name, bytes);
+    // By hash as well: two files may share a name (image001.png), never a hash.
+    filesBySha.clear();
+    for (const att of analysis.iocs.attachments || []) {
+      if (att.sha256 && att.bytes?.length) filesBySha.set(att.sha256, { name: att.value || "file", bytes: att.bytes });
+    }
 
     await renderResults(currentAnalysis);
     showStatus("Analysis complete!", "success");
@@ -980,6 +987,105 @@ async function fetchDns(btn) {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ===== SAVING FILES =====
+//
+// A file from a phishing email is presumed malicious. The default download is
+// a ZIP protected with the password "infected" — the convention every malware
+// analysis tool understands — so it cannot be run by a stray double-click and
+// antivirus will not quietly remove it. A raw download asks first, and a file
+// that would run when double-clicked gets ".bin" added to its name.
+const filesBySha = new Map();
+let decodedFile = null;
+
+function saveZipped(name, bytes) {
+  const inner = safeFilename(name);
+  downloadFile({
+    name: `${inner}.zip`,
+    type: "application/zip",
+    content: zipEncrypted(inner, bytes, ZIP_PASSWORD),
+  });
+  return `${inner}.zip`;
+}
+
+function saveRaw(name, bytes) {
+  // Judge by content as well as by name: "Invoice.pdf" may be a Windows program.
+  const content = sniffFileType(bytes)?.label || "";
+  const program = /executable|shortcut|class file/i.test(content);
+  const fileName = safeFilename(name, { raw: true, program });
+  const renamed = fileName !== safeFilename(name);
+  const ok = window.confirm(
+    `Save "${name}" without protection?\n\nFiles from a suspicious email may be malware. Open it only in an isolated analysis environment.${
+      program ? `\n\nIts content is a ${content}, whatever its name says.` : ""
+    }${renamed ? `\n\nIt will be saved as "${fileName}" so it cannot run on a double-click.` : ""}`,
+  );
+  if (!ok) return null;
+  downloadFile({ name: fileName, type: "application/octet-stream", content: bytes });
+  return fileName;
+}
+
+function saveAttachment(btn, raw) {
+  const file = filesBySha.get(btn.dataset.sha);
+  if (!file) {
+    showStatus("That file's content is no longer available — analyze the email again.", "error");
+    return;
+  }
+  const saved = raw ? saveRaw(file.name, file.bytes) : saveZipped(file.name, file.bytes);
+  if (saved) {
+    const label = btn.textContent;
+    btn.textContent = "Saved";
+    setTimeout(() => (btn.textContent = label), 2000);
+    if (!raw) showStatus(`Saved ${saved} — the password is "${ZIP_PASSWORD}".`, "success");
+  }
+}
+
+/** CyberChef-style: pasted hex or Base64 back into the file it encodes. */
+async function decodeFile() {
+  const input = document.getElementById("decode-input");
+  const mode = document.getElementById("decode-mode")?.value || "auto";
+  const nameInput = document.getElementById("decode-name");
+  const out = document.getElementById("decode-output");
+  if (!input || !out) return;
+
+  const result = decodeToBytes(input.value, mode);
+  if (result.error) {
+    decodedFile = null;
+    out.innerHTML = `<p class="decode-file-error">${esc(result.error)}</p>`;
+    return;
+  }
+
+  const { bytes } = result;
+  const sniffed = sniffFileType(bytes);
+  const ext = sniffed?.extensions?.[0] || "bin";
+  const name = (nameInput?.value || "").trim() || `decoded.${ext}`;
+  const sha256 = await sha256Bytes(bytes);
+  const md5 = md5Bytes(bytes);
+  decodedFile = { name, bytes };
+
+  const preview = [...bytes.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join(" ");
+  out.innerHTML = `<div class="decode-file-result">
+      <dl class="whois-grid">
+        <dt>Read as</dt><dd>${esc(result.mode)}</dd>
+        <dt>Size</dt><dd>${bytes.length.toLocaleString()} bytes</dd>
+        <dt>Content</dt><dd>${esc(sniffed?.label || "not a recognised file type")}</dd>
+        <dt>First bytes</dt><dd>${esc(preview)}</dd>
+        <dt>SHA-256</dt><dd>${esc(sha256)}</dd>
+        <dt>MD5</dt><dd>${esc(md5)}</dd>
+      </dl>
+      <div class="decode-file-actions">
+        <button class="btn btn-primary btn-sm" type="button" data-act="decoded-zip">Save zip</button>
+        <button class="btn btn-secondary btn-sm" type="button" data-act="decoded-raw">Save raw</button>
+        <a class="btn btn-secondary btn-sm" href="https://www.virustotal.com/gui/file/${sha256}" target="_blank" rel="noopener noreferrer">Hash on VirusTotal ↗</a>
+      </div>
+      <p class="decode-file-note">The ZIP password is "${ZIP_PASSWORD}". Nothing was uploaded; the hash link sends only the hash.</p>
+    </div>`;
+}
+
+function saveDecoded(raw) {
+  if (!decodedFile) return;
+  const saved = raw ? saveRaw(decodedFile.name, decodedFile.bytes) : saveZipped(decodedFile.name, decodedFile.bytes);
+  if (saved && !raw) showStatus(`Saved ${saved} — the password is "${ZIP_PASSWORD}".`, "success");
 }
 
 // ===== FORWARDED EMAILS AND HTML ATTACHMENTS =====
@@ -1629,6 +1735,11 @@ const ACTIONS = {
   "copy-iocs": (btn) => copyAllIOCs(btn),
   "open-batch": (btn) => openBatchItem(btn.dataset.index),
   "open-eml": (btn) => openAttachedEmail(btn),
+  "save-zip": (btn) => saveAttachment(btn, false),
+  "save-raw": (btn) => saveAttachment(btn, true),
+  "decode-file": () => decodeFile(),
+  "decoded-zip": () => saveDecoded(false),
+  "decoded-raw": () => saveDecoded(true),
   "expand-preview": (btn) => {
     const wrap = btn.closest(".tab-content")?.querySelector(".preview-frame-wrap");
     if (!wrap) return;

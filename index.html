@@ -121,6 +121,30 @@
           </a>
         </div>
         <div id="input-status" class="status-message"></div>
+
+        <!-- CyberChef-style: hex or Base64 back into a file. Folded away so the
+             main flow stays clean. -->
+        <details class="decode-file">
+          <summary>Decode hex or Base64 to a file</summary>
+          <div class="decode-file-body">
+            <label for="decode-input">Paste hex (<code>4d 5a 90 00</code>, <code>0x4d,0x5a</code>, <code>\x4d\x5a</code>, a hexdump) or Base64 (with or without line breaks, base64url, <code>data:</code> URIs)</label>
+            <textarea id="decode-input" spellcheck="false" placeholder="4d 5a 90 00 03 00 00 00 …   or   TVqQAAMAAAAEAAAA…"></textarea>
+            <div class="decode-file-row">
+              <label>Read as
+                <select id="decode-mode">
+                  <option value="auto">Auto-detect</option>
+                  <option value="hex">Hex</option>
+                  <option value="base64">Base64</option>
+                </select>
+              </label>
+              <label>File name
+                <input type="text" id="decode-name" placeholder="decoded.bin" />
+              </label>
+              <button class="btn btn-primary" type="button" data-act="decode-file">Decode</button>
+            </div>
+            <div id="decode-output"></div>
+          </div>
+        </details>
       </section>
 
       <!-- Export: sits directly above the results it exports -->

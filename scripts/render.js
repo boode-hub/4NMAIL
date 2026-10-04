@@ -872,7 +872,11 @@ function renderIOCSection(id, title, items, type, apiKeys, showAll) {
       const whoisHtml =
         type === "domain" || type === "ip" ? whoisPanel(type, value) : "";
 
-      return `<tr class="ioc-row"><td class="ioc-value-cell"><span class="ioc-original mono">${esc(value)}</span><span class="ioc-defanged mono hidden">${esc(defanged)}</span>${hashHtml}${decodeHtml}${whoisHtml}</td><td class="ioc-risk-cell">${riskHtml}</td><td class="ioc-actions"><button class="btn-sm" data-act="copy-ioc" title="Copy">Copy</button><button class="btn-sm" data-act="defang" title="Defang">Defang</button><div class="ioc-lookup-btns">${vtBtn}${emailDomainBtn}${abuseBtn}</div></td></tr><tr class="lookup-result-row hidden" data-ioc-value="${esc(value)}"><td colspan="3" class="lookup-result-cell"><div class="lookup-result-content"></div></td></tr>`;
+      return `<tr class="ioc-row"><td class="ioc-value-cell"><span class="ioc-original mono">${esc(value)}</span><span class="ioc-defanged mono hidden">${esc(defanged)}</span>${hashHtml}${decodeHtml}${whoisHtml}</td><td class="ioc-risk-cell">${riskHtml}</td><td class="ioc-actions"><button class="btn-sm" data-act="copy-ioc" title="Copy">Copy</button><button class="btn-sm" data-act="defang" title="Defang">Defang</button>${
+        type === "attachment" && item.sha256
+          ? `<button class="btn-sm btn-save" data-act="save-zip" data-sha="${esc(item.sha256)}" title="Download inside a ZIP protected with the password &quot;infected&quot; — it cannot be run by accident or deleted by antivirus">Save zip</button><button class="btn-sm" data-act="save-raw" data-sha="${esc(item.sha256)}" title="Download the file itself (asks first; programs get .bin added)">Raw</button>`
+          : ""
+      }<div class="ioc-lookup-btns">${vtBtn}${emailDomainBtn}${abuseBtn}</div></td></tr><tr class="lookup-result-row hidden" data-ioc-value="${esc(value)}"><td colspan="3" class="lookup-result-cell"><div class="lookup-result-content"></div></td></tr>`;
     })
     .join("");
 

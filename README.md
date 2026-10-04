@@ -229,6 +229,15 @@ Every URL has a **Decode URL** section. It is highlighted with the encodings it 
 - **SHA-256 and MD5** are shown for each file, with its type, size and whether it is inline.
 - The VirusTotal button on a file looks up its hash.
 
+**Saving files.** Every file the analyzer extracted — attachments, inline images, forwarded emails, and files recovered from inside HTML attachments — has two download buttons:
+
+- **Save zip** (the default) — the file inside a ZIP protected with the password **`infected`**, the convention across malware-analysis tooling. It cannot be run by a stray double-click and antivirus will not quietly delete it before you look. Windows Explorer, 7-Zip and every unzip tool open it.
+- **Raw** — the file itself, after a warning. A file that would run when double-clicked gets `.bin` added to its name — judged by its **content** as well as its name, so an "Invoice.pdf" that is really a Windows program is saved as `Invoice.pdf.bin`.
+
+Files are identified by their SHA-256, so two attachments that share a name (`image001.png`) are never confused.
+
+**Decode hex or Base64 to a file** (folded under the input box) works like CyberChef's "From Hex" / "From Base64" with a download at the end. Paste hex in any common form (`4d 5a 90 00`, `0x4d,0x5a`, `\x4d\x5a`, a hexdump with offsets) or Base64 (with line breaks, unpadded, base64url, or a `data:` URI); it shows the real file type from the bytes, the size, the first bytes, SHA-256 and MD5, a link to look the hash up on VirusTotal, and the same Save zip / Raw buttons. Nothing is uploaded.
+
 **HTML attachments are read, never run.** A fake login page or an "HTML smuggling" document does its work in the victim's browser, so the app reads its code instead and reports, under the attachment:
 
 - whether it contains a **password form** — a fake login page;
@@ -514,6 +523,7 @@ Raw email
 │   ├── analyze-language.js     Phrase detection engine
 │   ├── keywords.js             The word lists (strong and broad, nine categories)
 │   ├── analyze-thread.js       Quoted-conversation parsing and fabrication checks
+│   ├── file-export.js          Password-protected ZIP, hex/Base64 decoding, safe file names
 │   ├── score.js                Scoring, reasons and caveats
 │   ├── render.js               Rendering for every panel
 │   ├── report.js               HTML / CSV report export and defanging
@@ -552,6 +562,7 @@ node tests/report.test.mjs       # report export: defanging, safety, well-formed
 node tests/headers.test.mjs      # original header order view
 node tests/language.test.mjs     # word lists, tiers, whole-word matching, floors, speed
 node tests/thread.test.mjs       # fabricated threads, and genuine replies left alone
+node tests/files.test.mjs        # protected ZIP (checked by an independent reader), decoding, file names
 node tests/theme.test.mjs        # accent colour palette, apply and reset
 node tests/security.test.mjs     # CSP, no inline handlers, no third-party assets, relay allow-list
 node tests/detection.test.mjs    # identity, link shapes, file content, ARC, anomalies, BEC floor
@@ -572,6 +583,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | attachments | 9 |
 | language | 18 |
 | thread | 13 |
+| files | 9 |
 | headers | 6 |
 | detection | 25 |
 | server | 11 |
@@ -580,7 +592,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | security | 11 |
 | theme | 3 |
 | imports | 1 |
-| **Total** | **348** |
+| **Total** | **357** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 

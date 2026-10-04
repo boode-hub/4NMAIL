@@ -46,6 +46,7 @@ jobs:
       - run: node tests/compare.test.mjs
       - run: node tests/html.test.mjs
       - run: node tests/thread.test.mjs
+      - run: node tests/files.test.mjs
 
   deploy:
     needs: test

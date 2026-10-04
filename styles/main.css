@@ -3391,3 +3391,117 @@ mark.highlight-bec.broad { text-decoration-color: var(--purple); }
   font-size: 11px;
   margin-top: 0.15rem;
 }
+
+
+/* ===== SAVING FILES / DECODE TO FILE ===== */
+.btn-save {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+.decode-file {
+  margin-top: 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-deep);
+}
+.decode-file > summary {
+  cursor: pointer;
+  padding: 0.6rem 0.875rem;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+}
+.decode-file[open] > summary {
+  border-bottom: 1px solid var(--border);
+  color: var(--accent);
+}
+.decode-file-body {
+  padding: 0.875rem;
+  display: grid;
+  gap: 0.625rem;
+}
+.decode-file-body > label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.decode-file-body code {
+  font-family: "JetBrains Mono", monospace;
+  background: var(--bg-elevated);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+#decode-input {
+  width: 100%;
+  min-height: 110px;
+  resize: vertical;
+  box-sizing: border-box;
+  background: var(--bg-base);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.625rem;
+  font: 12px/1.5 "JetBrains Mono", monospace;
+}
+#decode-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.decode-file-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+}
+.decode-file-row label {
+  display: grid;
+  gap: 0.25rem;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.decode-file-row select,
+.decode-file-row input {
+  background: var(--bg-base);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.6rem;
+  font-size: 12px;
+  min-height: 36px;
+}
+.decode-file-result {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 0.75rem;
+  background: var(--bg-base);
+}
+.decode-file-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.decode-file-actions a {
+  text-decoration: none;
+}
+.decode-file-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0.5rem 0 0;
+}
+.decode-file-error {
+  color: var(--red);
+  font-size: 12px;
+  margin: 0;
+}
+@media (max-width: 768px) {
+  .decode-file-row > * {
+    flex: 1 1 100%;
+  }
+  .decode-file-row select,
+  .decode-file-row input {
+    min-height: 40px;
+  }
+}
