@@ -22,6 +22,8 @@ import {
   defangDomain,
   defangText,
   CSV_COLUMNS,
+  buildStixBundle,
+  buildMispEvent,
 } from "../scripts/report.js";
 
 let passed = 0;
@@ -335,6 +337,65 @@ await test("filename is dated, slugged and cut at a word boundary", () => {
   );
   assert.equal(name, "phishing-report_2026-09-17_action-required-your-account-has-been.md");
   assert.equal(reportFilename({ headers: {} }, "csv", NOW), "phishing-report_2026-09-17_email.csv");
+});
+
+// --- STIX 2.1 and MISP -------------------------------------------------------------
+
+/** UUIDv5 computed independently with node:crypto. */
+function uuid5(namespace, name) {
+  const h = createHash("sha1").update(Buffer.from(namespace.replace(/-/g, ""), "hex")).update(name).digest();
+  h[6] = (h[6] & 0x0f) | 0x50;
+  h[8] = (h[8] & 0x3f) | 0x80;
+  const x = h.subarray(0, 16).toString("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+
+await test("STIX bundle: well-formed, deterministic observable ids, every reference resolves", async () => {
+  const a = await analysis();
+  const bundle = JSON.parse(await buildStixBundle(a, { now: NOW }));
+  assert.equal(bundle.type, "bundle");
+  assert.match(bundle.id, /^bundle--[0-9a-f-]{36}$/);
+  const ids = new Set(bundle.objects.map((o) => o.id));
+  for (const o of bundle.objects) {
+    assert.equal(o.spec_version, "2.1", o.id);
+    assert.match(o.id, new RegExp(`^${o.type}--[0-9a-f]{8}-[0-9a-f]{4}-[45][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), o.id);
+  }
+  const url = bundle.objects.find((o) => o.type === "url");
+  assert.equal(url.id, `url--${uuid5("00abedb4-aa42-466c-9c01-fed23315a9b7", JSON.stringify({ value: url.value }))}`);
+  const report = bundle.objects.find((o) => o.type === "report");
+  for (const ref of report.object_refs) assert.ok(ids.has(ref), `dangling ${ref}`);
+  const msg = bundle.objects.find((o) => o.type === "email-message");
+  assert.ok(ids.has(msg.from_ref));
+  assert.ok(!bundle.objects.some((o) => o.value === "10.1.2.3"), "private IPs left out");
+  const file = bundle.objects.find((o) => o.type === "file");
+  assert.equal(file.hashes["SHA-256"], a.iocs.attachments[0].sha256);
+  const patterns = bundle.objects.filter((o) => o.type === "indicator").map((o) => o.pattern);
+  assert.ok(patterns.includes(`[file:hashes.'SHA-256' = '${file.hashes["SHA-256"]}']`));
+  assert.ok(patterns.some((p) => p.startsWith("[ipv6-addr:value = '2001:db8::7'")), patterns.join(" "));
+  assert.ok(bundle.objects.some((o) => o.type === "indicator" && o.indicator_types[0] === "malicious-activity"));
+});
+
+await test("STIX patterns escape quotes and backslashes", async () => {
+  const a = { headers: {}, iocs: { urls: [{ value: "http://e.test/a'b\\c" }], domains: [], ips: [], emails: [], attachments: [] }, score: {} };
+  const bundle = JSON.parse(await buildStixBundle(a, { now: NOW }));
+  assert.equal(bundle.objects.find((o) => o.type === "indicator").pattern, "[url:value = 'http://e.test/a\\'b\\\\c']");
+});
+
+await test("MISP event: typed attributes, IDS flag only on high-risk items, safe sharing defaults", async () => {
+  const a = await analysis();
+  const { Event } = JSON.parse(buildMispEvent(a, { now: NOW }));
+  assert.equal(Event.date, "2026-09-17");
+  assert.equal(Event.threat_level_id, "1");
+  assert.equal(Event.distribution, "0");
+  assert.equal(Event.published, false);
+  const byType = (t) => Event.Attribute.filter((x) => x.type === t);
+  assert.equal(byType("email-src")[0].value, "service@paypal.com");
+  assert.equal(byType("email-reply-to")[0].value, "help@evil.test");
+  assert.equal(byType("email-subject").length, 1);
+  assert.ok(byType("filename|sha256")[0].value.startsWith("Invoice.pdf.exe|"));
+  assert.equal(byType("filename|sha256")[0].to_ids, true);
+  assert.ok(!Event.Attribute.some((x) => x.value === "10.1.2.3"));
+  assert.ok(Event.Attribute.every((x) => typeof x.to_ids === "boolean" && x.uuid));
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

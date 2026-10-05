@@ -999,3 +999,208 @@ function csvCell(value) {
   if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\r\n]/.test(s) || s !== s.trim() ? `"${s.replace(/"/g, '""')}"` : s;
 }
+
+// ===== STIX 2.1 and MISP =====
+//
+// For threat-intelligence platforms (OpenCTI, MISP, Sentinel, ...). Unlike the
+// reports above these carry live values — that is what an indicator is — so
+// they are files to import, not to forward.
+
+const STIX_NAMESPACE = "00abedb4-aa42-466c-9c01-fed23315a9b7"; // STIX 2.1 SCO id namespace
+
+/** JSON with sorted keys: the canonical form STIX hashes for deterministic ids. */
+function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .filter((k) => value[k] !== undefined)
+      .sort()
+      .map((k) => `${JSON.stringify(k)}:${canonical(value[k])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** UUIDv5 (SHA-1, RFC 4122): the same observable always gets the same id. */
+async function uuid5(namespace, name) {
+  const ns = Uint8Array.from(namespace.replace(/-/g, "").match(/../g), (x) => parseInt(x, 16));
+  const data = new Uint8Array([...ns, ...new TextEncoder().encode(name)]);
+  const b = new Uint8Array(await crypto.subtle.digest("SHA-1", data)).slice(0, 16);
+  b[6] = (b[6] & 0x0f) | 0x50;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+const uuid4 = () => crypto.randomUUID();
+const isHighRisk = (item) => (item?.riskFlags || []).some((f) => f.type === "high");
+const stixString = (s) => String(s).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+
+/**
+ * A STIX 2.1 bundle: the message and every indicator as observables, an
+ * indicator (with a STIX pattern) for each, and a report tying them together.
+ */
+export async function buildStixBundle(analysis, { now = new Date() } = {}) {
+  const iocs = analysis.iocs || {};
+  const hd = analysis.headers || {};
+  const score = analysis.score || {};
+  const ts = now.toISOString();
+  const identity = {
+    type: "identity",
+    spec_version: "2.1",
+    id: `identity--${await uuid5(STIX_NAMESPACE, "Phishing Email Analyzer")}`,
+    created: "2024-01-01T00:00:00.000Z",
+    modified: "2024-01-01T00:00:00.000Z",
+    name: "Phishing Email Analyzer",
+    identity_class: "system",
+  };
+  const objects = [identity];
+  const refs = [];
+
+  const sco = async (type, props) => {
+    const contributing = type === "file" ? { hashes: props.hashes, name: props.name } : { value: props.value };
+    const obj = { type, spec_version: "2.1", id: `${type}--${await uuid5(STIX_NAMESPACE, canonical(contributing))}`, ...props };
+    if (!objects.some((o) => o.id === obj.id)) objects.push(obj);
+    refs.push(obj.id);
+    return obj;
+  };
+  const indicator = (name, pattern, item) => {
+    const flags = flagsOf(item);
+    const description = [item.source && `Seen in: ${item.source}`, flags.length && `Flags: ${flags.join("; ")}`].filter(Boolean).join(". ");
+    const obj = {
+      type: "indicator",
+      spec_version: "2.1",
+      id: `indicator--${uuid4()}`,
+      created_by_ref: identity.id,
+      created: ts,
+      modified: ts,
+      name,
+      ...(description ? { description } : {}),
+      indicator_types: [isHighRisk(item) ? "malicious-activity" : "unknown"],
+      pattern,
+      pattern_type: "stix",
+      valid_from: ts,
+      labels: ["phishing"],
+    };
+    objects.push(obj);
+    refs.push(obj.id);
+  };
+
+  for (const u of iocs.urls || []) {
+    await sco("url", { value: u.value });
+    indicator(`URL ${defangUrl(u.value)}`, `[url:value = '${stixString(u.value)}']`, u);
+  }
+  for (const d of iocs.domains || []) {
+    await sco("domain-name", { value: d.value });
+    indicator(`Domain ${defangDomain(d.value)}`, `[domain-name:value = '${stixString(d.value)}']`, d);
+  }
+  for (const ip of iocs.ips || []) {
+    if (ip.private) continue; // a private address identifies nothing outside one network
+    const type = ip.value.includes(":") ? "ipv6-addr" : "ipv4-addr";
+    await sco(type, { value: ip.value });
+    indicator(`IP ${defangIp(ip.value)}`, `[${type}:value = '${stixString(ip.value)}']`, ip);
+  }
+  const emailIds = new Map();
+  for (const e of iocs.emails || []) {
+    emailIds.set(e.value.toLowerCase(), (await sco("email-addr", { value: e.value })).id);
+    indicator(`Email ${defangEmail(e.value)}`, `[email-addr:value = '${stixString(e.value)}']`, e);
+  }
+  for (const f of iocs.attachments || []) {
+    if (!f.sha256) continue;
+    const props = { hashes: { "SHA-256": f.sha256, ...(f.md5 ? { MD5: f.md5 } : {}) } };
+    if (f.value) props.name = f.value;
+    if (f.size != null) props.size = f.size;
+    if (f.contentType) props.mime_type = f.contentType;
+    await sco("file", props);
+    indicator(`File ${f.value || f.sha256}`, `[file:hashes.'SHA-256' = '${f.sha256}']`, f);
+  }
+
+  const fromRef = hd.from?.email && emailIds.get(hd.from.email.toLowerCase());
+  const date = hd.date ? new Date(hd.date) : null;
+  const message = {
+    type: "email-message",
+    spec_version: "2.1",
+    is_multipart: (iocs.attachments || []).length > 0,
+    ...(fromRef ? { from_ref: fromRef } : {}),
+    ...(hd.subject ? { subject: hd.subject } : {}),
+    ...(date && !isNaN(date) ? { date: date.toISOString() } : {}),
+    ...(hd.messageId ? { message_id: hd.messageId } : {}),
+  };
+  message.id = `email-message--${await uuid5(STIX_NAMESPACE, canonical({ from_ref: message.from_ref, subject: message.subject }))}`;
+  objects.push(message);
+  refs.unshift(message.id);
+
+  objects.push({
+    type: "report",
+    spec_version: "2.1",
+    id: `report--${uuid4()}`,
+    created_by_ref: identity.id,
+    created: ts,
+    modified: ts,
+    name: `Phishing analysis: ${hd.subject || "(no subject)"}`,
+    description: [`Verdict: ${score.tier || "Unknown"} (${score.score ?? "?"}/100).`, ...(score.reasons || []).slice(0, 5)].join(" "),
+    report_types: ["threat-report"],
+    labels: ["phishing", ...(score.attackTypes || [])],
+    published: ts,
+    object_refs: [...new Set(refs)],
+  });
+
+  return JSON.stringify({ type: "bundle", id: `bundle--${uuid4()}`, objects }, null, 2);
+}
+
+/** A MISP event (JSON import format), unpublished and limited to your organization. */
+export function buildMispEvent(analysis, { now = new Date() } = {}) {
+  const iocs = analysis.iocs || {};
+  const hd = analysis.headers || {};
+  const score = analysis.score || {};
+  const attributes = [];
+  const add = (type, category, value, item, comment) => {
+    if (!value) return;
+    attributes.push({
+      uuid: uuid4(),
+      type,
+      category,
+      value: String(value),
+      to_ids: isHighRisk(item),
+      comment: [comment, ...flagsOf(item)].filter(Boolean).join("; "),
+    });
+  };
+  const EMAIL_TYPES = { From: "email-src", "Reply-To": "email-reply-to", "Return-Path": "email-src" };
+
+  add("email-subject", "Payload delivery", hd.subject, null, "Subject");
+  add("email-message-id", "Payload delivery", hd.messageId, null, "Message-ID");
+  add("email-src-display-name", "Payload delivery", hd.from?.name, null, "From display name");
+  for (const e of iocs.emails || []) add(EMAIL_TYPES[e.source] || "email", "Payload delivery", e.value, e, e.source);
+  for (const u of iocs.urls || []) add("url", "Network activity", u.value, u, u.source);
+  for (const d of iocs.domains || []) add("domain", "Network activity", d.value, d, d.source);
+  for (const ip of iocs.ips || []) if (!ip.private) add("ip-src", "Network activity", ip.value, ip, ip.source);
+  for (const f of iocs.attachments || []) {
+    if (!f.sha256) continue;
+    const name = (f.value || "file").replace(/\|/g, "_");
+    add("filename|sha256", "Payload delivery", `${name}|${f.sha256}`, f, f.source);
+    if (f.md5) add("filename|md5", "Payload delivery", `${name}|${f.md5}`, f, f.source);
+  }
+
+  const LEVEL = { "High Risk": "1", Suspicious: "2", "Low Risk": "3" };
+  return JSON.stringify(
+    {
+      Event: {
+        uuid: uuid4(),
+        info: `Phishing: ${hd.subject || "(no subject)"}`,
+        date: now.toISOString().slice(0, 10),
+        threat_level_id: LEVEL[score.tier] || "4",
+        analysis: "2",
+        distribution: "0",
+        published: false,
+        Tag: [
+          { name: "phishing" },
+          { name: `phishing-analyzer:verdict="${score.tier || "Unknown"}"` },
+          ...(score.attackTypes || []).map((t) => ({ name: `phishing-analyzer:attack-type="${t}"` })),
+        ],
+        Attribute: attributes,
+      },
+    },
+    null,
+    2,
+  );
+}

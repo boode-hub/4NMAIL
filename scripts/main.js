@@ -22,6 +22,8 @@ import {
   buildHtmlReport,
   buildCsvReport,
   buildJsonReport,
+  buildStixBundle,
+  buildMispEvent,
   reportFilename,
   defangUrl,
   defangDomain,
@@ -188,6 +190,8 @@ function queryElements() {
     exportHtml: "export-html",
     exportCsv: "export-csv",
     exportJson: "export-json",
+    exportStix: "export-stix",
+    exportMisp: "export-misp",
     exportRaw: "export-raw",
     exportDownload: "export-download",
     exportStatus: "export-status",
@@ -294,7 +298,7 @@ function init() {
   setupThemePicker();
 
   elements.exportDownload?.addEventListener("click", handleExportDownload);
-  for (const box of [elements.exportHtml, elements.exportCsv]) {
+  for (const box of [elements.exportHtml, elements.exportCsv, elements.exportJson, elements.exportStix, elements.exportMisp]) {
     box?.addEventListener("change", syncExportControls);
   }
   syncExportControls();
@@ -585,8 +589,8 @@ function hideResults() {
 function syncExportControls() {
   const report = elements.exportHtml?.checked;
   const csv = elements.exportCsv?.checked;
-  const json = elements.exportJson?.checked;
-  if (elements.exportDownload) elements.exportDownload.disabled = !report && !csv && !json;
+  const others = [elements.exportJson, elements.exportStix, elements.exportMisp].some((b) => b?.checked);
+  if (elements.exportDownload) elements.exportDownload.disabled = !report && !csv && !others;
   if (elements.exportRaw) {
     elements.exportRaw.disabled = !csv;
     elements.exportRaw.closest("label")?.classList.toggle("disabled", !csv);
@@ -624,7 +628,7 @@ function copyAllIOCs(btn) {
   copyText(lines.join("\n").trim(), btn);
 }
 
-function handleExportDownload() {
+async function handleExportDownload() {
   if (!currentAnalysis) return;
   const now = new Date();
   const files = [];
@@ -641,6 +645,20 @@ function handleExportDownload() {
       name: reportFilename(currentAnalysis, "json", now),
       type: "application/json;charset=utf-8",
       content: buildJsonReport(currentAnalysis, { lookups: lookupResults, local: localResults, now }),
+    });
+  }
+  if (elements.exportStix?.checked) {
+    files.push({
+      name: reportFilename(currentAnalysis, "stix.json", now),
+      type: "application/json;charset=utf-8",
+      content: await buildStixBundle(currentAnalysis, { now }),
+    });
+  }
+  if (elements.exportMisp?.checked) {
+    files.push({
+      name: reportFilename(currentAnalysis, "misp.json", now),
+      type: "application/json;charset=utf-8",
+      content: buildMispEvent(currentAnalysis, { now }),
     });
   }
   if (elements.exportCsv?.checked) {

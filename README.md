@@ -60,7 +60,7 @@ All analysis runs locally in your browser. Nothing is uploaded; the only data th
 - **Reads the wording** — urgency, fear, financial fraud, credential harvesting, and Business Email Compromise / payment fraud, matched by pattern as well as by phrase.
 - **Asks your own machine, not a service** — live DNS (SPF, DMARC, MX) and WHOIS/registration for every domain and IP, resolved locally with no API key.
 - **A verdict you can explain** — every point of the score has a reason, and the tool says when the evidence is too thin to trust a low score.
-- **Report in one click** — a styled, self-contained HTML report, a CSV and a JSON file for tooling, with every indicator defanged, plus a one-click copy of all indicators.
+- **Report in one click** — a styled, self-contained HTML report, CSV and JSON files for tooling with every indicator defanged, and STIX 2.1 / MISP files for threat-intel platforms, plus a one-click copy of all indicators.
 - **A whole batch at once** — select many files and every message is scored and listed worst first.
 - **A comparison page** — drop in a pile of messages and read them side by side, with the shared IP, link, address or file hash that ties a campaign together called out.
 - **Private by design** — no uploads, no tracking, and the message's own HTML preview cannot phone home.
@@ -382,7 +382,7 @@ The **Email Headers** panel has two collapsible views:
 
 ### Report export
 
-The **Export IOC report** bar above the results downloads any combination of the three formats, and **Copy IOCs** puts every indicator on the clipboard (defanged, or raw for tooling).
+The **Export IOC report** bar above the results downloads any combination of the formats below, and **Copy IOCs** puts every indicator on the clipboard (defanged, or raw for tooling).
 
 **HTML report** — a single self-contained file in the app's own design:
 
@@ -407,7 +407,13 @@ The **Export IOC report** bar above the results downloads any combination of the
 - UTF-8 with a byte-order mark and CRLF line endings, so it opens correctly in Excel.
 - Cells that would start with `= + - @` are prefixed so spreadsheets cannot execute them as formulas.
 
-**Defanging** (both formats)
+**STIX 2.1** — a bundle for threat-intelligence platforms (OpenCTI, Microsoft Sentinel, anything that speaks STIX/TAXII): the message as an `email-message` object, every URL, domain, public IP, email address and file as an observable, an `indicator` with a STIX pattern for each (`malicious-activity` when the analyzer flagged it high-risk, `unknown` otherwise), and a `report` carrying the verdict, reasons and attack type. Observables get deterministic ids (UUIDv5, as the STIX specification recommends), so the same indicator from two messages merges into one object on import.
+
+**MISP** — an event in MISP's JSON import format: subject, Message-ID, sender, Reply-To, URLs, domains, public IPs and `filename|sha256` / `filename|md5` attributes, each typed and categorised. The IDS flag is set only on items flagged high-risk, the threat level follows the verdict, and the event is **unpublished** and shared with **your organisation only** until you decide otherwise.
+
+STIX and MISP files carry **live values** — that is what an indicator is — so they are for importing, not for forwarding. Private IP addresses are left out of both.
+
+**Defanging** (HTML, CSV and JSON)
 
 | Original | Defanged |
 |---|---|
@@ -592,7 +598,7 @@ node tests/attachments.test.mjs  # MIME extraction and file hashing
 node tests/ip.test.mjs           # IP validation, extraction, sender IP resolution
 node tests/url-decode.test.mjs   # URL unwrapping and decoders
 node tests/links.test.mjs        # link and IOC extraction, summary and verdict rendering
-node tests/report.test.mjs       # report export: defanging, safety, well-formed output
+node tests/report.test.mjs       # report export: defanging, safety, well-formed output, STIX 2.1, MISP
 node tests/headers.test.mjs      # original header order view
 node tests/language.test.mjs     # word lists, tiers, whole-word matching, floors, speed
 node tests/thread.test.mjs       # fabricated threads, and genuine replies left alone
@@ -615,7 +621,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | auth | 37 |
 | url-decode | 26 |
 | ip | 30 |
-| report | 19 |
+| report | 22 |
 | links | 17 |
 | attachments | 9 |
 | language | 18 |
@@ -632,7 +638,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | containers | 14 |
 | msg | 5 |
 | imports | 1 |
-| **Total** | **390** |
+| **Total** | **393** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 
