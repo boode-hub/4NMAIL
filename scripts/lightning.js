@@ -1,192 +1,147 @@
-// Background lightning: every so often a bolt tears down the sky in the accent
-// colour — a white-hot core in a coloured glow, forks that fork again, and the
-// flicker of real lightning: a leader racing down, then a few return strokes
-// that light the whole sky, fading into an afterglow.
+// Background lightning: now and then a bolt drops from the top of the page — a
+// white core with the accent colour glowing round it and lighting the sky
+// above, flickering out in about two thirds of a second. The style of
+// qayssarayra.com's sky, drawn in this app's own colours.
 //
-// Pure decoration: behind every panel, ignores the mouse, pauses while the tab
-// is hidden, follows the theme colour picker (it draws with var(--accent)),
-// and stays off for anyone whose system asks for reduced motion.
+// Pure decoration: a canvas behind every panel that ignores the mouse, draws
+// only while a strike lasts, pauses while the tab is hidden, follows the theme
+// colour picker (it reads --accent at each strike), and stays off for anyone
+// whose system asks for reduced motion.
 
-const SVG = "http://www.w3.org/2000/svg";
-const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
+const canvas = document.createElement("canvas");
+canvas.className = "lightning";
+canvas.setAttribute("aria-hidden", "true");
+document.body.prepend(canvas);
+const g = canvas.getContext("2d");
 
-const layer = document.createElement("div");
-layer.className = "storm";
-layer.setAttribute("aria-hidden", "true");
-const sky = document.createElement("div");
-sky.className = "storm-sky";
-const glow = document.createElement("div");
-glow.className = "storm-glow";
-const bolts = document.createElementNS(SVG, "svg");
-bolts.setAttribute("class", "storm-bolts");
-const halo = document.createElementNS(SVG, "g");
-halo.setAttribute("class", "bolt-halo");
-const body = document.createElementNS(SVG, "g");
-body.setAttribute("class", "bolt-body");
-const core = document.createElementNS(SVG, "g");
-core.setAttribute("class", "bolt-core");
-bolts.append(halo, body, core);
-layer.append(sky, glow, bolts);
-document.body.prepend(layer);
+const rand = (lo, hi) => lo + Math.random() * (hi - lo);
 
-const between = (a, b) => a + Math.random() * (b - a);
-
-/**
- * A lightning channel from one point to another by midpoint displacement:
- * each pass splits every segment and pushes its middle sideways by up to half
- * the previous amount — the jagged-at-every-scale look of real lightning.
- */
-function channel(x1, y1, x2, y2, roughness, passes = 6) {
-  let points = [[x1, y1], [x2, y2]];
-  let offset = Math.hypot(x2 - x1, y2 - y1) * roughness;
-  for (let pass = 0; pass < passes; pass++) {
-    const next = [points[0]];
-    for (let i = 0; i < points.length - 1; i++) {
-      const [ax, ay] = points[i];
-      const [bx, by] = points[i + 1];
-      const len = Math.hypot(bx - ax, by - ay) || 1;
-      const d = (Math.random() - 0.5) * 2 * offset;
-      next.push([(ax + bx) / 2 - ((by - ay) / len) * d, (ay + by) / 2 + ((bx - ax) / len) * d], points[i + 1]);
-    }
-    points = next;
-    offset /= 2;
-  }
-  return points;
-}
-
-/**
- * Draw one channel, thinning towards its end, in three layers: a wide soft
- * halo, the coloured body and a near-white core. Returns the paths so the
- * leader can be animated racing down them.
- */
-function draw(points, width, delay) {
-  const paths = [];
-  const chunks = 4;
-  const size = Math.ceil((points.length - 1) / chunks);
-  for (let k = 0; k < chunks; k++) {
-    const part = points.slice(k * size, (k + 1) * size + 1);
-    if (part.length < 2) break;
-    const d = `M${part.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join("L")}`;
-    const w = width * (1 - k * 0.2);
-    for (const [group, scale] of [[halo, 7], [body, 2.2], [core, 0.9]]) {
-      const path = document.createElementNS(SVG, "path");
-      path.setAttribute("d", d);
-      path.setAttribute("stroke-width", (w * scale).toFixed(2));
-      path.setAttribute("pathLength", "1");
-      group.append(path);
-      paths.push({ path, delay: delay + k * 18 });
-    }
-  }
-  return paths;
-}
-
-/** Forks leave the channel at an angle, shorter and thinner; some fork again. */
-function forks(points, width, generation, delayBase) {
-  const out = [];
-  if (generation > 2) return out;
-  const count = generation === 1 ? 2 + Math.floor(Math.random() * 3) : Math.random() < 0.5 ? 1 : 0;
-  const [sx, sy] = points[0];
-  const [ex, ey] = points[points.length - 1];
-  const length = Math.hypot(ex - sx, ey - sy);
-  const heading = Math.atan2(ey - sy, ex - sx);
-  for (let i = 0; i < count; i++) {
-    const at = Math.floor(between(0.12, 0.7) * points.length);
-    const [fx, fy] = points[at];
-    const angle = heading + (Math.random() < 0.5 ? -1 : 1) * between(0.35, 0.9);
-    const forkLength = length * between(0.18, 0.4);
-    const fork = channel(fx, fy, fx + Math.cos(angle) * forkLength, fy + Math.sin(angle) * forkLength, 0.22, 5);
-    const delay = delayBase + (at / points.length) * 90;
-    out.push(...draw(fork, width * 0.5, delay), ...forks(fork, width * 0.5, generation + 1, delay));
+/** Each segment's midpoint pushed sideways (across the segment) by up to `push` pixels: one pass of jaggedness. */
+function jag(points, push) {
+  const out = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const off = rand(-push, push);
+    out.push({ x: (a.x + b.x) / 2 - ((b.y - a.y) / len) * off, y: (a.y + b.y) / 2 + ((b.x - a.x) / len) * off }, b);
   }
   return out;
 }
 
 /**
- * Where to strike: in the empty margin beside the content, on a random side,
- * so the bolt is seen rather than hidden behind a panel. Returns the band the
- * main channel stays inside. Phones have no margin worth the name: anywhere.
+ * Where a strike may start: in the empty margin beside the content, where it
+ * can be seen; anywhere across the middle when the margins are too narrow.
  */
 function strikeBand(width) {
   const content = document.querySelector(".app-container > *")?.getBoundingClientRect();
   const margin = content ? content.left : 0;
-  if (margin < 24) return [width * 0.1, width * 0.9];
+  if (margin < 24) return [width * 0.12, width * 0.88];
   const inset = Math.min(40, margin / 4);
   const band = [inset, margin - inset];
   return Math.random() < 0.5 ? band : [width - band[1], width - band[0]];
 }
 
 /**
- * The flicker of a real strike: two to four return strokes along the same
- * channel, each a little dimmer, separated by near-darkness, then an afterglow.
- * As keyframe offsets (0–1) over the strike's duration.
+ * A strike: from above the top edge to a third or two-thirds down, in six to
+ * nine steps that drift with a slowly changing lean, then jagged twice; most
+ * strikes with one to three short branches off to one side.
  */
-function flicker() {
-  const frames = [{ opacity: 0, offset: 0 }];
-  let t = 0.07; // the leader reaching the ground
-  let intensity = 1;
-  const strokes = 2 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < strokes; i++) {
-    frames.push({ opacity: intensity, offset: t });
-    t += between(0.025, 0.05);
-    frames.push({ opacity: intensity * between(0.05, 0.3), offset: t });
-    t += between(0.03, 0.09);
-    intensity *= between(0.72, 0.95);
+function bolt(w, h) {
+  const steps = Math.round(rand(6, 9));
+  const end = rand(h * 0.34, h * 0.72);
+  let x = rand(...strikeBand(w));
+  let lean = rand(-0.45, 0.45);
+  let points = [{ x, y: -12 }];
+  for (let i = 1; i <= steps; i++) {
+    lean += rand(-0.2, 0.2);
+    x += rand(-24, 24) + lean * 16;
+    points.push({ x, y: -12 + (end + 12) * (i / steps) });
   }
-  frames.push({ opacity: intensity * 0.7, offset: Math.min(t, 0.75) });
-  frames.push({ opacity: 0, offset: 1 });
-  return frames;
+  points = jag(jag(points, 9), 4);
+  const branches = [];
+  const count = Math.random() < 0.72 ? Math.round(rand(1, 3)) : 0;
+  for (let b = 0; b < count; b++) {
+    const from = points[Math.round(rand(2, points.length - 2))];
+    const side = Math.random() < 0.5 ? -1 : 1;
+    const branch = [from];
+    let { x: bx, y: by } = from;
+    for (let i = Math.round(rand(2, 4)); i > 0; i--) {
+      bx += side * rand(10, 42);
+      by += rand(16, 46);
+      branch.push({ x: bx, y: by });
+    }
+    branches.push(jag(branch, 5));
+  }
+  return { points, branches };
 }
 
-let strikeId = 0;
+/** How bright the strike is, `t` ms in: a flash, nearly out, a second flash, out, a third weaker one, then a fade. Zero when done. */
+function brightness(t) {
+  if (t < 55) return 1;
+  if (t < 105) return 0.12;
+  if (t < 165) return 0.86;
+  if (t < 215) return 0.08;
+  if (t < 275) return 0.46;
+  if (t < 620) return 0.46 * (1 - (t - 275) / 345);
+  return 0;
+}
+
+/** The theme colour as "r, g, b", read when a strike starts, so a changed accent is used at once. */
+function accentRgb() {
+  const hex = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim();
+  const m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex);
+  return m ? `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}` : "159, 239, 0";
+}
+
+function line(points) {
+  g.beginPath();
+  g.moveTo(points[0].x, points[0].y);
+  for (const p of points.slice(1)) g.lineTo(p.x, p.y);
+  g.stroke();
+}
+
+function schedule(first = false) {
+  setTimeout(strike, first ? rand(2600, 7000) : rand(9000, 27000));
+}
 
 function strike() {
-  const id = ++strikeId;
-  const width = innerWidth;
-  const height = innerHeight;
-  const band = strikeBand(width);
-  const x = between(band[0], band[1]);
-  const endY = height * between(0.55, 1.05);
-  bolts.setAttribute("viewBox", `0 0 ${width} ${height}`);
-  for (const group of [halo, body, core]) group.replaceChildren();
-
-  // The main channel, kept inside the margin so it is seen.
-  const main = channel(x, -20, x + between(-0.15, 0.15) * (band[1] - band[0]), endY, 0.12).map(([px, py]) => [
-    Math.min(band[1] + 12, Math.max(band[0] - 12, px)),
-    py,
-  ]);
-  const width0 = between(1.3, 1.9);
-  const paths = [...draw(main, width0, 0), ...forks(main, width0, 1, 0)];
-
-  // The stepped leader: every channel races down from where it starts.
-  for (const { path, delay } of paths) {
-    path.animate([{ strokeDashoffset: 1 }, { strokeDashoffset: 0 }], { duration: 70, delay, easing: "ease-in", fill: "backwards" });
-  }
-
-  const duration = between(1100, 1600);
-  const frames = flicker();
-  glow.style.setProperty("--strike-x", `${((x / width) * 100).toFixed(1)}%`);
-  const timing = { duration, easing: "linear" };
-  bolts.animate(frames, timing);
-  glow.animate(frames, timing);
-  // The sky lights with the strokes but not the afterglow.
-  sky.animate(frames.map((f) => ({ ...f, opacity: f.offset > 0.75 ? 0 : f.opacity })), timing).finished.then(
-    () => {
-      // Unless a newer strike has already drawn its own bolt.
-      if (id === strikeId) for (const group of [halo, body, core]) group.replaceChildren();
-    },
-    () => {},
-  );
+  if (document.hidden || matchMedia("(prefers-reduced-motion: reduce)").matches) return schedule();
+  // Sized at each strike, so a resized window is drawn at its own size and resolution.
+  const ratio = Math.min(devicePixelRatio || 1, 2);
+  const w = innerWidth;
+  const h = innerHeight;
+  canvas.width = Math.round(w * ratio);
+  canvas.height = Math.round(h * ratio);
+  g.setTransform(ratio, 0, 0, ratio, 0, 0);
+  const b = bolt(w, h);
+  const glow = accentRgb();
+  const start = performance.now();
+  const draw = (now) => {
+    const v = brightness(now - start);
+    g.clearRect(0, 0, w, h);
+    if (v <= 0) return schedule();
+    // The sky lit from where it leaves the cloud.
+    const sky = g.createRadialGradient(b.points[0].x, 0, 0, b.points[0].x, 0, Math.max(w, h) * 0.9);
+    sky.addColorStop(0, `rgba(${glow}, ${0.1 * v})`);
+    sky.addColorStop(0.4, `rgba(${glow}, ${0.032 * v})`);
+    sky.addColorStop(1, `rgba(${glow}, 0)`);
+    g.fillStyle = sky;
+    g.fillRect(0, 0, w, h);
+    g.lineCap = "round";
+    g.lineJoin = "round";
+    g.strokeStyle = `rgba(${glow}, ${0.38 * v})`;
+    g.lineWidth = 8;
+    line(b.points);
+    g.strokeStyle = `rgba(255, 255, 255, ${Math.min(1, 1.05 * v)})`;
+    g.lineWidth = 1.8;
+    line(b.points);
+    g.strokeStyle = `rgba(255, 255, 255, ${0.5 * v})`;
+    g.lineWidth = 1;
+    for (const br of b.branches) line(br);
+    requestAnimationFrame(draw);
+  };
+  requestAnimationFrame(draw);
 }
 
-function schedule(delay) {
-  setTimeout(() => {
-    if (!document.hidden && !reducedMotion.matches) {
-      strike();
-      // A third of the time the storm strikes again moments later.
-      if (Math.random() < 0.33) setTimeout(strike, between(1300, 2200));
-    }
-    schedule(between(8000, 20000));
-  }, delay);
-}
-
-schedule(between(2500, 6000));
+if (g) schedule(true);

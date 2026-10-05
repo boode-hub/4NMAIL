@@ -130,66 +130,18 @@ body {
 }
 
 /* ===== BACKGROUND LIGHTNING (scripts/lightning.js) =====
-   Behind every panel (z-index -1 over the page background), never clickable.
-   Drawn with the accent colour, so it follows the theme picker. The script
-   animates the opacity of the sky, glow and bolt layers; all rest invisible. */
-.storm {
+   A canvas behind every panel (z-index -1 over the page background), never
+   clickable. It is clear except for the moment of a strike. */
+.lightning {
   position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  overflow: hidden;
-}
-.storm-sky,
-.storm-glow,
-.storm-bolts {
-  position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  opacity: 0;
-}
-/* The whole sky lights up, brightest overhead. */
-.storm-sky {
-  background: linear-gradient(
-    to bottom,
-    color-mix(in srgb, var(--accent) 11%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 4%, transparent) 50%,
-    color-mix(in srgb, var(--accent) 1.5%, transparent) 100%
-  );
-}
-/* A brighter bloom in the cloud the bolt falls from. */
-.storm-glow {
-  background: radial-gradient(
-    ellipse 45% 65% at var(--strike-x, 50%) 0%,
-    color-mix(in srgb, var(--accent) 30%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 9%, transparent) 40%,
-    transparent 75%
-  );
-}
-.storm-bolts {
-  filter: drop-shadow(0 0 6px var(--accent));
-}
-.storm-bolts path {
-  fill: none;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-dasharray: 1; /* with pathLength=1: lets the leader race down it */
-}
-.bolt-halo {
-  filter: blur(4px);
-  opacity: 0.35;
-}
-.bolt-halo path,
-.bolt-body path {
-  stroke: var(--accent);
-}
-/* Lightning is white-hot at its centre; the colour is in the glow. */
-.bolt-core path {
-  stroke: color-mix(in srgb, #ffffff 78%, var(--accent));
+  z-index: -1;
+  pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
-  .storm {
+  .lightning {
     display: none;
   }
 }
