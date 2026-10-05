@@ -125,7 +125,16 @@ const DOMAIN_RE = /^(?!-)[a-z0-9-]{1,63}(?<!-)(?:\.(?!-)[a-z0-9-]{1,63}(?<!-))+$
 export function parseDomainList(text) {
   const valid = [];
   const invalid = [];
-  for (const raw of String(text || "").split(/[\s,;]+/)) {
+  // Lines, commas and semicolons separate entries. Spaces separate them too,
+  // but only when every space-separated piece looks like a domain — "not a
+  // domain" is one bad entry, not three.
+  const pieces = [];
+  for (const chunk of String(text || "").split(/[\n,;]+/)) {
+    const words = chunk.trim().split(/\s+/).filter(Boolean);
+    if (words.length > 1 && words.every((w) => /\.[a-z]{2,}/i.test(w))) pieces.push(...words);
+    else if (chunk.trim()) pieces.push(chunk.trim());
+  }
+  for (const raw of pieces) {
     const entry = raw.trim();
     if (!entry) continue;
     const domain = entry

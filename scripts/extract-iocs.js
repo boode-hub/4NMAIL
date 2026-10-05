@@ -106,6 +106,32 @@ const ARCHIVE_URL_EXT = new Set(["zip", "rar", "7z", "gz", "tar", "cab", "tgz", 
  * @param {Object} body - Parsed body (may be null)
  * @returns {Object} Extracted IOCs
  */
+/**
+ * Bring newly found items up to the same standard as the rest: files found
+ * inside archives and documents, and the links they contain. Runs the same
+ * HTML reading, unwrapping, domain collection and flagging over everything —
+ * each step is safe to repeat.
+ */
+export function refreshIOCs(iocs) {
+  inspectHtmlContent(iocs, null);
+  addUnwrappedDestinations(iocs);
+  const known = new Set(iocs.domains.map((d) => d.value));
+  for (const url of iocs.urls) {
+    let host = null;
+    try {
+      host = new URL(url.value).hostname.toLowerCase().replace(/\.$/, "");
+    } catch {
+      /* not a URL */
+    }
+    if (host && host.includes(".") && !isValidIP(host.replace(/^\[|\]$/g, "")) && !known.has(host)) {
+      known.add(host);
+      iocs.domains.push({ value: host, source: url.unwrappedFrom ? "Unwrapped URL" : "URL" });
+    }
+  }
+  deduplicateAndFlag(iocs);
+  return iocs;
+}
+
 export function extractIOCs(headers, body) {
   const iocs = {
     urls: [],
@@ -285,7 +311,6 @@ const HTML_EXTENSIONS = new Set(["htm", "html", "shtml", "xhtml", "svg", "hta", 
  * offered for lookup exactly like a real attachment.
  */
 function inspectHtmlContent(iocs, body) {
-  if (!body) return;
 
   const addDestinations = (found, sourceLabel, passwordForm) => {
     for (const d of found.destinations) {
@@ -300,7 +325,7 @@ function inspectHtmlContent(iocs, body) {
     }
   };
 
-  if (body.html) {
+  if (body?.html) {
     const found = inspectHtml(body.html, { name: "message" });
     iocs.bodyFindings = {
       passwordForm: found.passwordForm,
@@ -312,6 +337,8 @@ function inspectHtmlContent(iocs, body) {
 
   // Snapshot: payloads pushed below are inspected by the file checks, not here.
   for (const att of [...iocs.attachments]) {
+    if (att.htmlChecked) continue;
+    att.htmlChecked = true;
     const ext = extensionOf(att.value);
     const isHtml = /html|svg|xhtml/i.test(att.contentType || "") || HTML_EXTENSIONS.has(ext);
     if (!isHtml || !att.bytes?.length) continue;
@@ -633,6 +660,14 @@ function deduplicateAndFlag(iocs) {
         message: "Suspicious double file extension",
       });
       att.risky = true;
+    }
+
+    // What was found inside the file: an archive's contents, an Office
+    // document's macros and remote templates, a PDF's scripts and actions.
+    for (const finding of att.containerFindings || []) {
+      att.riskFlags.push({ type: finding.level, label: finding.label });
+      att.risks.push({ type: finding.type, level: finding.level, message: finding.message });
+      if (finding.level === "high") att.risky = true;
     }
 
     // What an HTML attachment would do if opened.

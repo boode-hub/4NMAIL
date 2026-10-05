@@ -208,6 +208,22 @@ function decisiveFindings(iocs, identity) {
   const programs = files.filter((f) => has(f, "executable-content"));
   if (programs.length) high.push(`Decisive: ${names(programs)} is a program, whatever its name says`);
 
+  // What was found inside documents and archives.
+  const inside = (list, type, say) => {
+    const hits = files.filter((f) => has(f, type));
+    if (hits.length) list.push(`${list === high ? "Decisive: " : ""}${names(hits)} ${say}`);
+  };
+  inside(high, "archive-executable", "carries a program inside the archive");
+  inside(high, "remote-template", "loads a template from the internet when opened (template injection)");
+  inside(high, "remote-object", "links an object fetched from the internet when opened");
+  inside(high, "dde", "contains a DDE command that can start a program");
+  inside(high, "macro-autorun", "contains a macro that runs by itself or launches programs");
+  inside(high, "pdf-launch", "can launch a program from the PDF");
+  inside(high, "rtf-equation", "carries an Equation Editor exploit object");
+  inside(suspicious, "macros", "contains macros");
+  inside(suspicious, "pdf-javascript", "contains JavaScript");
+  inside(suspicious, "archive-password", "is a password-protected archive whose password is in the email");
+
   const loginPages = files.filter((f) => has(f, "login-form"));
   if (loginPages.length) suspicious.push(`A login page arrives as an attachment: ${names(loginPages)}`);
   if (iocs?.bodyFindings?.passwordForm) suspicious.push("The message itself asks for a password in a form");

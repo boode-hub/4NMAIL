@@ -18,7 +18,7 @@ All analysis runs locally in your browser. Nothing is uploaded; the only data th
 - [How to use it](#how-to-use-it)
 - [Features](#features)
   - [Quick Summary](#quick-summary)
-  - [Sender identity](#sender-identity)
+  - [Sender identity and deception checks](#sender-identity-and-deception-checks)
   - [Fabricated conversation threads](#fabricated-conversation-threads)
   - [Verdict and scoring](#verdict-and-scoring)
   - [Email authentication](#email-authentication)
@@ -53,7 +53,10 @@ All analysis runs locally in your browser. Nothing is uploaded; the only data th
 - **Finds what the link is hiding** — unwraps Microsoft Safe Links, Proofpoint and open redirects, decodes Base64, punycode and more, and analyses the real destination as an indicator of its own.
 - **Every indicator in one place** — URLs (including tracking pixels), domains, IPs, email addresses, attachments and inline images with SHA-256/MD5, and deceptive links.
 - **Checks who it claims to be** — display names that carry another address or a brand they do not own, lookalike and mixed-alphabet sending domains, and replies pointed at free webmail.
-- **Looks inside attachments** — the real file type from its first bytes, so "Invoice.pdf" that is actually a program is caught, along with HTML smuggling.
+- **Protects your own organization** — optionally list your domains in Settings, and lookalikes of them (`c0ntoso.com`, `contoso.co`, `contoso-payroll.com`) are caught in senders, Reply-To addresses and links.
+- **Catches Unicode tricks** — right-to-left overrides that hide a file's real extension, invisible characters inside words, and words that mix alphabets.
+- **Looks inside attachments** — the real file type from its first bytes, so "Invoice.pdf" that is actually a program is caught, along with HTML smuggling. ZIP archives are opened (with the password from the email when it is given), Office files are checked for macros, remote templates and DDE, and PDFs for JavaScript, launch actions and hidden links.
+- **Names the attack** — a one-line "Looks like" verdict: credential phishing, malware delivery, BEC / payment fraud, extortion, callback phishing and more.
 - **Reads the wording** — urgency, fear, financial fraud, credential harvesting, and Business Email Compromise / payment fraud, matched by pattern as well as by phrase.
 - **Asks your own machine, not a service** — live DNS (SPF, DMARC, MX) and WHOIS/registration for every domain and IP, resolved locally with no API key.
 - **A verdict you can explain** — every point of the score has a reason, and the tool says when the evidence is too thin to trust a low score.
@@ -97,7 +100,7 @@ PORT=3000 node server.js
    - **Gmail:** open the message → ⋮ → **Show original** → copy it, or **Download original** for an `.eml` file.
    - **Outlook on the web:** open the message → ⋯ → **View** → **View message source**.
    - **Outlook desktop:** **File → Properties** shows the Internet headers. Headers alone are enough for the authentication and routing analysis; body, links and attachments need the full source.
-2. **Paste** it into the input box, or **upload** the `.eml` / `.txt` file.
+2. **Paste** it into the input box, **upload** the `.eml` / `.txt` file, or **drag and drop** files anywhere on the page.
 3. Click **Analyze Email**.
 4. Read the **Quick Summary** first, then drill into the panels below it.
 5. Optionally add **VirusTotal / AbuseIPDB API keys** in **Settings** to look indicators up in place.
@@ -115,7 +118,7 @@ The first panel answers "is this phishing?" and shows the evidence at a glance.
 
 | Card | Shows |
 |---|---|
-| **Verdict** | Risk tier, score out of 100, the top three reasons, and any caveats about the evidence |
+| **Verdict** | Risk tier, score out of 100, what the attack **looks like**, the top three reasons, and any caveats about the evidence |
 | **Authentication** | SPF, DKIM and DMARC results and whether the domains align |
 | **IOCs found** | Counts of URLs, domains, IPs, emails and files, highlighted when any is high-risk |
 | **Sender** | From address and domain, and whether DMARC verifies it — shown as **Not verified — fails DMARC** for a spoofed sender |
@@ -142,8 +145,9 @@ The score combines three categories, each capped at 100 **before** weighting so 
 
 - A message where SPF, DKIM and DMARC all fail on a misaligned domain reaches **High Risk** on authentication alone.
 - **Some findings decide the verdict on their own**, however the message authenticates, and are listed first:
-  - **High Risk** — data would be sent to a collection service such as a Telegram bot or Discord webhook; a file is hidden inside an HTML page and written to disk (HTML smuggling); a file's bytes are a program whatever its name says.
-  - **At least Suspicious** — a login page arrives as an attachment; the message itself asks for a password; two or more payment-fraud (BEC) signals.
+  - **High Risk** — data would be sent to a collection service such as a Telegram bot or Discord webhook; a file is hidden inside an HTML page and written to disk (HTML smuggling); a file's bytes are a program whatever its name says; a file name hides its real extension with a right-to-left override; an archive carries a program; an Office document loads a remote template, links a remote object, contains a DDE command or an auto-running macro; a PDF can launch a program; an RTF carries an Equation Editor exploit object.
+  - **At least Suspicious** — a login page arrives as an attachment; the message itself asks for a password; a document contains macros or PDF JavaScript; a password-protected archive comes with its password in the email; the quoted conversation is fabricated; two or more payment-fraud (BEC) signals.
+- **Looks like** — a short line naming the kind of attack the evidence adds up to: BEC / payment fraud, credential phishing, malware delivery, extortion / sextortion, advance-fee scam, callback phishing, prize / reward scam, impersonation, sender spoofing. It is shown in the summary, the comparison table and every export.
 - Repeated low-severity findings have diminishing returns — the twentieth shortened link adds almost nothing.
 - **Every point comes with a reason**, listed under its category in the **Analysis Result** panel.
 - **Caveats** warn when a low score is not a clean result:
@@ -249,6 +253,15 @@ Every address it finds becomes a URL indicator, and a **Preview this page (sandb
 
 Running the attachment to watch it was considered and rejected: a browser sandbox cannot stop WebRTC from reaching the attacker, so detonation would break the promise that analysis never contacts the sender. Everything above is obtained by reading alone.
 
+**Archives, Office documents, PDFs and RTF are opened and read — never run.** Under each one, the app lists what it found inside:
+
+- **ZIP archives** — the file list; programs and archives inside the archive; whether it is password-protected. When the email gives the password ("the password is 4455") the archive is **opened with it**, and that pattern — a file hidden from scanners but not from the victim — is flagged on its own. Files inside are extracted and checked like any attachment (hashed, typed from their bytes, downloadable), two levels deep. AES-encrypted archives can be listed but not opened.
+- **Office documents** (docx/xlsx/pptx and the macro-enabled variants) — VBA macros, remote templates (template injection), remote linked objects, DDE commands, ActiveX controls, embedded objects, and every external link, which becomes a URL indicator. **Legacy** `.doc`/`.xls` files are checked for macro streams, auto-running macro code and embedded packages.
+- **PDFs** — JavaScript, actions that run on open, launch actions, embedded files (extracted), form submission and rich media. Compressed streams are decompressed and names written with `#xx` escapes are decoded, so hidden links and scripts are found; every link becomes a URL indicator.
+- **RTF** — embedded objects, objects that update themselves on open, the Equation Editor exploit (CVE-2017-11882), remote templates and hyperlinks.
+
+Decompression uses the browser's built-in decompressor, with size limits on every file and on the total, so a ZIP bomb cannot exhaust memory.
+
 **Emails forwarded as an attachment.** A suspicious message forwarded to you "as attachment" arrives as a `.eml` inside the forwarder's mail — whose headers say nothing about the attacker. An **Analyze this attached email** button loads the original straight into the analyzer.
 
 ### Language analysis
@@ -307,9 +320,9 @@ Findings appear in the **Sender identity** card and are scored; any strong sign 
   - a message with no HTML part is shown as text, and HTML sent as `text/plain` is recognised and rendered.
 - The note above the preview says exactly what was blocked or removed, and the frame can be dragged taller or **Expanded**.
 
-### Sender identity
+### Sender identity and deception checks
 
-Authentication answers "did this domain really send it". It cannot answer "is this domain who the reader thinks it is" — and most real phishing passes every check. The **Sender identity** card appears directly under the verdict whenever any of these hold:
+Authentication answers "did this domain really send it". It cannot answer "is this domain who the reader thinks it is" — and most real phishing passes every check. The **Deception checks** card appears directly under the verdict whenever any of these hold:
 
 - the display name carries a different address than the real sender (`"PayPal Service <service@paypal.com>" <attacker@gmail.com>`);
 - the display name claims a brand the sending domain does not belong to;
@@ -318,6 +331,21 @@ Authentication answers "did this domain really send it". It cannot answer "is th
 - replies would go to a personal webmail account on another domain.
 
 The same lookalike check runs over every link, so a link to `paypa1-verify.com` is flagged even when its text is innocent. Links are also flagged for embedded credentials (`https://accounts.paypal.com@evil.test`), `javascript:` and `data:` schemes, non-standard ports, direct downloads of programs or archives, and heavily abused domain endings such as `.zip`.
+
+**Your own domains (optional).** In **Settings → Your domains**, list any number of your organization's domains — one per line, or separated by commas or spaces; pasted URLs and email addresses are reduced to the domain, and anything that is not a domain is named and ignored. Then:
+
+- a sender, Reply-To or link whose domain imitates yours is a **high** finding — character swaps (`c0ntoso.com`), one-letter typos (`contosso.com`), the same name on another ending (`contoso.co`, `fabrikam.com` for `fabrikam.co.uk`), or your name used as a word (`contoso-payroll.com`);
+- a display name that claims your organization from an outside domain is flagged;
+- your real domains and their subdomains are never flagged.
+
+The list is stored only in this browser. Leave it empty and the feature is off.
+
+**Unicode tricks.**
+
+- **Right-to-left override** in a file name: `invoice‮fdp.exe` displays as `invoiceexe.pdf`. The control character is shown as `[U+202E RLO]` wherever the name appears, the real extension is judged, and the verdict is decisive.
+- **Text-direction controls** in the subject or sender name.
+- **Invisible characters inside words** (`Pay​pal`), which break keyword filters; invisible padding between words, common in newsletter preheaders, is ignored.
+- **Words that mix alphabets** (`Pаypal` with a Cyrillic `а`), in the subject, sender name and body; a word written entirely in another alphabet is not flagged.
 
 ### Live DNS and WHOIS
 
@@ -529,6 +557,8 @@ Raw email
 │   ├── report.js               HTML / CSV report export and defanging
 │   ├── hash-utils.js           Byte-accurate SHA-256 and MD5
 │   ├── analyze-identity.js     Display-name and lookalike-domain analysis
+│   ├── analyze-unicode.js      Right-to-left overrides, invisible characters, mixed alphabets
+│   ├── inspect-files.js        Looking inside ZIP, Office, PDF and RTF attachments
 │   ├── file-type.js            Attachment content sniffing and HTML smuggling
 │   ├── compare-model.js        Side-by-side table and campaign correlation
 │   ├── compare.js              Compare page: drag and drop, rendering, exports
@@ -569,6 +599,8 @@ node tests/detection.test.mjs    # identity, link shapes, file content, ARC, ano
 node tests/server.test.mjs       # traversal, null bytes, dot-files, cross-origin use of the local endpoints
 node tests/compare.test.mjs      # side-by-side table, campaign correlation, comparison exports
 node tests/html.test.mjs         # body/attachment detection, static HTML reading, verdict floors
+node tests/deception.test.mjs    # your domains, Unicode tricks, attack type
+node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF
 node tests/imports.test.mjs      # every cross-module call is imported
 ```
 
@@ -591,8 +623,10 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | html | 19 |
 | security | 11 |
 | theme | 3 |
+| deception | 14 |
+| containers | 13 |
 | imports | 1 |
-| **Total** | **357** |
+| **Total** | **384** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 
@@ -616,7 +650,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 - **Wording alone cannot raise the risk tier.** This prevents false alarms from urgent-sounding legitimate mail, but it means a Business Email Compromise message sent from a genuine, compromised account can score **Low Risk** while its BEC phrases are listed. Always verify payment or bank-detail changes by phone using a known number.
 - **Language detection is English-only.**
 - **Relaxed alignment uses a compact list of multi-part domain suffixes**, not the full Public Suffix List; unusual country suffixes may be judged by their last two labels.
-- **Attachments are hashed, not scanned** — look the hash up to learn about the file.
+- **Attachments are read, not scanned for known malware** — structure and content are inspected, but there is no antivirus signature check; look the hash up to learn about the file. RAR, 7-Zip and AES-encrypted ZIP archives are not opened.
 - **Mimecast-rewritten links cannot be unwrapped**, because Mimecast keeps the destination on its servers.
 - **`.msg` files are not supported** — convert to `.eml` or paste the source.
 

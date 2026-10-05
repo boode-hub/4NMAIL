@@ -5,7 +5,8 @@ import { parseHeaders } from "./parse-headers.js";
 import { applyAccent, loadAccent, saveAccent, DEFAULT_ACCENT } from "./theme.js";
 import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
-import { extractIOCs } from "./extract-iocs.js";
+import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
+import { inspectContainers } from "./inspect-files.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity, setProtectedDomains, parseDomainList, protectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
@@ -368,6 +369,10 @@ async function buildAnalysis(input) {
   const auth = parseAuth(headers);
   const body = isFullEmail ? parseBody(input) : null;
   const iocs = extractIOCs(headers, body);
+  // Look inside archives, Office files, PDFs and RTF; what they contain is
+  // checked like everything else.
+  await inspectContainers(iocs, body);
+  refreshIOCs(iocs);
 
   // Hash every extracted file — attachments and inline images alike — so the
   // hashes are on screen without a lookup, and a VirusTotal file check is one

@@ -48,6 +48,7 @@ jobs:
       - run: node tests/thread.test.mjs
       - run: node tests/files.test.mjs
       - run: node tests/deception.test.mjs
+      - run: node tests/containers.test.mjs
 
   deploy:
     needs: test

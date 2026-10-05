@@ -8,7 +8,8 @@
 import { parseHeaders } from "./parse-headers.js";
 import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
-import { extractIOCs } from "./extract-iocs.js";
+import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
+import { inspectContainers } from "./inspect-files.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity, setProtectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
@@ -63,6 +64,10 @@ async function analyse(raw) {
   const auth = parseAuth(headers);
   const body = raw.includes("\r\n\r\n") || raw.includes("\n\n") ? parseBody(raw) : null;
   const iocs = extractIOCs(headers, body);
+  // Look inside archives, Office files, PDFs and RTF; what they contain is
+  // checked like everything else.
+  await inspectContainers(iocs, body);
+  refreshIOCs(iocs);
   for (const att of iocs.attachments || []) {
     if (att.bytes && att.bytes.length) {
       att.sha256 = await sha256Bytes(att.bytes);

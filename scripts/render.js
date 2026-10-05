@@ -812,7 +812,7 @@ function renderIOCSection(id, title, items, type, apiKeys, showAll) {
               item.sha256
                 ? `<div class="hash-line"><span class="hash-label">SHA-256</span><span class="mono hash-val">${esc(item.sha256)}</span></div><div class="hash-line"><span class="hash-label">MD5</span><span class="mono hash-val">${esc(item.md5 || "")}</span></div>`
                 : '<div class="hash-line"><span class="hash-label muted">no decodable content</span></div>'
-            }<div class="att-meta">${esc(item.contentType || "unknown type")} · ${formatSize(item.size)}${item.inline ? " · inline" : ""}${item.embeddedIn ? ` · hidden inside ${esc(item.embeddedIn)}` : ""}</div>${attachmentExtras(item)}</div>`
+            }<div class="att-meta">${esc(item.contentType || "unknown type")} · ${formatSize(item.size)}${item.inline ? " · inline" : ""}${item.embeddedIn ? ` · inside ${esc(item.embeddedIn)}` : ""}</div>${attachmentExtras(item)}</div>`
           : "";
 
       const vtBtn = lookupUseless
@@ -909,6 +909,18 @@ function attachmentExtras(item) {
     parts.push(
       `<details class="att-preview" data-name="${esc(item.value)}"><summary>Preview this page (sandboxed)</summary><div class="att-preview-body"></div></details>`,
     );
+  }
+  const box = item.containerInfo;
+  if (box) {
+    const lines = (item.containerFindings || []).map((f) => `<li class="${f.level === "high" ? "bad" : "warn"}">${esc(f.label)} — ${esc(f.message)}</li>`);
+    if (box.entries?.length) {
+      const total = box.total || box.entries.length;
+      const shown = box.entries.slice(0, 20).map((e) => `<span class="mono">${esc(e)}</span>`).join(", ");
+      lines.push(`<li>${box.kind === "Archive" ? "Contents" : "Found"}: ${shown}${total > 20 ? ` and ${total - 20} more` : ""}</li>`);
+    }
+    for (const note of box.notes || []) lines.push(`<li>${esc(note)}</li>`);
+    if (!lines.length) lines.push("<li>Nothing risky found inside</li>");
+    parts.push(`<div class="att-findings"><div class="att-findings-title">${esc(box.kind)} — looked inside without opening it:</div><ul>${lines.join("")}</ul></div>`);
   }
   if (/message\/rfc822/i.test(item.contentType || "") || /\.eml$/i.test(item.value || "")) {
     parts.push(`<button class="btn-sm att-open" type="button" data-act="open-eml" data-name="${esc(item.value)}">Analyze this attached email</button>`);
