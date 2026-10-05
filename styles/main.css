@@ -131,7 +131,8 @@ body {
 
 /* ===== BACKGROUND LIGHTNING (scripts/lightning.js) =====
    Behind every panel (z-index -1 over the page background), never clickable.
-   Drawn with the accent colour, so it follows the theme picker. */
+   Drawn with the accent colour, so it follows the theme picker. The script
+   animates the opacity of the sky, glow and bolt layers; all rest invisible. */
 .storm {
   position: fixed;
   inset: 0;
@@ -139,6 +140,7 @@ body {
   pointer-events: none;
   overflow: hidden;
 }
+.storm-sky,
 .storm-glow,
 .storm-bolts {
   position: absolute;
@@ -147,59 +149,44 @@ body {
   height: 100%;
   opacity: 0;
 }
+/* The whole sky lights up, brightest overhead. */
+.storm-sky {
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--accent) 11%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 4%, transparent) 50%,
+    color-mix(in srgb, var(--accent) 1.5%, transparent) 100%
+  );
+}
+/* A brighter bloom in the cloud the bolt falls from. */
 .storm-glow {
   background: radial-gradient(
-    ellipse 55% 75% at var(--strike-x, 50%) 0%,
-    color-mix(in srgb, var(--accent) 14%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 4%, transparent) 45%,
+    ellipse 45% 65% at var(--strike-x, 50%) 0%,
+    color-mix(in srgb, var(--accent) 30%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 9%, transparent) 40%,
     transparent 75%
   );
 }
 .storm-bolts {
-  filter: drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 10px var(--accent-glow));
+  filter: drop-shadow(0 0 6px var(--accent));
 }
 .storm-bolts path {
   fill: none;
-  stroke: var(--accent);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-dasharray: 1;
+  stroke-dasharray: 1; /* with pathLength=1: lets the leader race down it */
 }
-.storm-bolts .bolt-trunk {
-  stroke-width: 1.6;
+.bolt-halo {
+  filter: blur(4px);
+  opacity: 0.35;
 }
-.storm-bolts .bolt-fork {
-  stroke-width: 0.8;
-  opacity: 0.6;
+.bolt-halo path,
+.bolt-body path {
+  stroke: var(--accent);
 }
-.storm.striking .storm-glow {
-  animation: storm-flash 1.2s ease-out;
-}
-.storm.striking .storm-bolts {
-  animation: storm-bolt 0.9s ease-out;
-}
-.storm.striking .storm-bolts path {
-  animation: storm-draw 0.12s ease-out both;
-}
-/* A bright hit, a flicker, a second flash, then it fades into the dark. */
-@keyframes storm-flash {
-  0% { opacity: 0; }
-  6% { opacity: 1; }
-  14% { opacity: 0.25; }
-  22% { opacity: 0.8; }
-  100% { opacity: 0; }
-}
-@keyframes storm-bolt {
-  0% { opacity: 0; }
-  5% { opacity: 0.9; }
-  12% { opacity: 0.15; }
-  20% { opacity: 0.85; }
-  55% { opacity: 0.3; }
-  100% { opacity: 0; }
-}
-@keyframes storm-draw {
-  from { stroke-dashoffset: 1; }
-  to { stroke-dashoffset: 0; }
+/* Lightning is white-hot at its centre; the colour is in the glow. */
+.bolt-core path {
+  stroke: color-mix(in srgb, #ffffff 78%, var(--accent));
 }
 @media (prefers-reduced-motion: reduce) {
   .storm {

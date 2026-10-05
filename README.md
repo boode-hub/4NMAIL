@@ -468,7 +468,7 @@ Note that a relay sees the indicators and API keys that pass through it — use 
 
 **Settings → Theme colour** opens your browser's colour picker. The choice recolours only the green accent — buttons, pass badges, focus rings and the logo — while backgrounds and the red/amber severity colours stay fixed so they keep their meaning. It applies instantly, is remembered in this browser, and **Reset** returns to the default `#9fef00`. Exported reports always use the default colours.
 
-**Background lightning.** Every 10–25 seconds a thin bolt flickers in the empty margin beside the content, with a soft glow where it strikes: a distant storm behind the panels, drawn in the accent colour so it follows the theme. It never covers text or catches a click, pauses while the tab is in the background, and is switched off entirely when your system asks for reduced motion.
+**Background lightning.** Every 8–20 seconds a bolt tears down the empty margin beside the content: a white-hot core in a glow of the accent colour, with forks that fork again, a leader racing down, then two to four return strokes that light up the whole sky before fading into an afterglow — and now and then a second strike moments later. It is drawn in the accent colour, so it follows the theme. It never covers text or catches a click, pauses while the tab is in the background, and is switched off entirely when your system asks for reduced motion.
 
 ### Mobile
 
