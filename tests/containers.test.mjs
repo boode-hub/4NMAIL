@@ -6,6 +6,7 @@ import { deflateRawSync, deflateSync } from "node:zlib";
 import { inspectContainers, findPasswords, readZipDirectory } from "../scripts/inspect-files.js";
 import { extractIOCs, refreshIOCs } from "../scripts/extract-iocs.js";
 import { calculateScore } from "../scripts/score.js";
+import { parseBody } from "../scripts/parse-body.js";
 import { zipEncrypted, crc32 } from "../scripts/file-export.js";
 
 let passed = 0;
@@ -254,6 +255,37 @@ await test("an RTF Equation Editor object is decisive; links in RTF are collecte
   assert.ok(risks(doc).includes("rtf-objupdate"));
   assert.ok(iocs.urls.some((u) => u.value === "http://rtf.test/x"));
   assert.equal(calculateScore(cleanAuth, iocs, null, {}).tier, "High Risk");
+});
+
+// ===== calendar invites =====
+
+await test("a calendar invite's folded, escaped links are found and its description is read", async () => {
+  const ics = [
+    "BEGIN:VCALENDAR",
+    "METHOD:REQUEST",
+    "BEGIN:VEVENT",
+    "ORGANIZER;CN=IT Support:mailto:it@helpdesk.test",
+    "SUMMARY:Mandatory password reset",
+    "DTSTART:20261006T090000Z",
+    "DESCRIPTION:Your account will be suspended. Verify now at https://login.micro",
+    " soft-verify.test/reset?u=1\\, before noon.\\nThanks",
+    "LOCATION:https://meet.evil.test/join",
+    "END:VEVENT",
+    "END:VCALENDAR",
+  ].join("\r\n");
+  const raw = `From: a@b.test\r\nSubject: Invite\r\nMIME-Version: 1.0\r\nContent-Type: multipart/alternative; boundary="X"\r\n\r\n--X\r\nContent-Type: text/plain\r\n\r\nYou have been invited.\r\n--X\r\nContent-Type: text/calendar; method=REQUEST\r\n\r\n${ics}\r\n--X--\r\n`;
+  const body = parseBody(raw);
+  const iocs = extractIOCs({ from: { email: "a@b.test" } }, body);
+  await inspectContainers(iocs, body);
+  refreshIOCs(iocs);
+  const invite = find(iocs, "invite.ics");
+  assert.ok(invite, "the invite is listed as a file");
+  assert.ok(risks(invite).includes("calendar-links"));
+  const urls = iocs.urls.map((u) => u.value);
+  assert.ok(urls.includes("https://login.microsoft-verify.test/reset?u=1"), urls.join(" "));
+  assert.ok(urls.includes("https://meet.evil.test/join"));
+  assert.ok(invite.containerInfo.entries.includes("Organizer: it@helpdesk.test"));
+  assert.match(body.text, /Your account will be suspended/, "the description reaches the language checks");
 });
 
 console.log(`\n${passed} passed, ${failures.length} failed`);

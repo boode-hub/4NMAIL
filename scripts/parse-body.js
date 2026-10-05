@@ -78,6 +78,9 @@ function walkParts(part, out, isRoot) {
 
 function isFilePart(part, isRoot) {
   if (part.dispositionType === "attachment") return true;
+  // A meeting invite is a file the calendar reads, not body text: its lines are
+  // folded and escaped, and it is inspected as an invite.
+  if (part.mime === "text/calendar") return true;
   const isText = part.mime === "text/html" || part.mime === "text/plain";
   // A text part marked inline, or carrying only a Content-ID, is the message
   // body. multipart/related gives its root HTML part a Content-ID so images can
@@ -95,6 +98,7 @@ function isFilePart(part, isRoot) {
 
 function inferFilename(part) {
   if (part.contentId) return `inline-${part.contentId}`;
+  if (part.mime === "text/calendar") return "invite.ics";
   const ext = (part.mime.split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "");
   return `unnamed-part.${ext}`;
 }

@@ -259,6 +259,7 @@ Running the attachment to watch it was considered and rejected: a browser sandbo
 - **Office documents** (docx/xlsx/pptx and the macro-enabled variants) — VBA macros, remote templates (template injection), remote linked objects, DDE commands, ActiveX controls, embedded objects, and every external link, which becomes a URL indicator. **Legacy** `.doc`/`.xls` files are checked for macro streams, auto-running macro code and embedded packages.
 - **PDFs** — JavaScript, actions that run on open, launch actions, embedded files (extracted), form submission and rich media. Compressed streams are decompressed and names written with `#xx` escapes are decoded, so hidden links and scripts are found; every link becomes a URL indicator.
 - **RTF** — embedded objects, objects that update themselves on open, the Equation Editor exploit (CVE-2017-11882), remote templates and hyperlinks.
+- **Calendar invites** (`.ics` files and meeting-request parts) — the event's organizer, title and start, and every link in its description, location or URL, unfolded and unescaped first so a link split across lines is still found. Calendars add a requested event automatically, so its links reach the victim even if the email is never opened. The description is also read by the language checks.
 
 Decompression uses the browser's built-in decompressor, with size limits on every file and on the total, so a ZIP bomb cannot exhaust memory.
 
@@ -600,7 +601,7 @@ node tests/server.test.mjs       # traversal, null bytes, dot-files, cross-origi
 node tests/compare.test.mjs      # side-by-side table, campaign correlation, comparison exports
 node tests/html.test.mjs         # body/attachment detection, static HTML reading, verdict floors
 node tests/deception.test.mjs    # your domains, Unicode tricks, attack type
-node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF
+node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF, calendar invites
 node tests/imports.test.mjs      # every cross-module call is imported
 ```
 
@@ -624,9 +625,9 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | security | 11 |
 | theme | 3 |
 | deception | 14 |
-| containers | 13 |
+| containers | 14 |
 | imports | 1 |
-| **Total** | **384** |
+| **Total** | **385** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 

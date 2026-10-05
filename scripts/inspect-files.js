@@ -426,6 +426,51 @@ function inspectRtf(att, bytes, ctx) {
 }
 
 /**
+ * Calendar invites (.ics): the lure sits in the event description, and the
+ * calendar adds the event — link and all — before anyone opens the mail.
+ * Lines are folded at 75 characters and text is escaped, so links in the raw
+ * file are broken up; unfold and unescape first.
+ */
+function inspectCalendar(att, bytes, ctx) {
+  const text = new TextDecoder("utf-8", { fatal: false }).decode(bytes.subarray(0, 5 * 1024 * 1024)).replace(/\r?\n[ \t]/g, "");
+  const props = [];
+  for (const line of text.split(/\r?\n/)) {
+    const m = line.match(/^([A-Za-z-]+)((?:;[^:]*)?):(.*)$/);
+    if (m) props.push({ name: m[1].toUpperCase(), params: m[2], value: m[3].replace(/\\n/gi, "\n").replace(/\\([,;\\])/g, "$1") });
+  }
+  const get = (name) => props.filter((p) => p.name === name).map((p) => p.value);
+  const info = { kind: "Calendar invite", entries: [], notes: [] };
+  att.containerInfo = info;
+
+  const method = get("METHOD")[0];
+  const summary = get("SUMMARY")[0];
+  const organizer = get("ORGANIZER")[0]?.replace(/^mailto:/i, "");
+  const start = get("DTSTART")[0];
+  if (summary) info.entries.push(`Event: ${summary}`);
+  if (organizer) info.entries.push(`Organizer: ${organizer}`);
+  if (start) info.entries.push(`Starts: ${start}`);
+  if (/REQUEST|PUBLISH/i.test(method || "")) info.notes.push("Calendars add a requested event automatically — the links appear in the calendar even if the email is never opened.");
+
+  const urls = new Set();
+  for (const p of props) {
+    if (["URL", "ATTACH", "CONFERENCE"].includes(p.name) && /^[a-z][a-z0-9+.-]*:\/\//i.test(p.value.trim())) urls.add(p.value.trim());
+    if (/^(DESCRIPTION|LOCATION|SUMMARY|COMMENT|X-ALT-DESC)$/.test(p.name)) {
+      for (const m of p.value.matchAll(/https?:\/\/[^\s<>"')\]]+/gi)) urls.add(m[0].replace(/[.,;]+$/, ""));
+    }
+  }
+  for (const url of urls) ctx.urls.push({ value: url, source: `Inside ${att.value} (calendar invite)`, isMismatch: false });
+  if (urls.size) {
+    att.containerFindings.push(finding("medium", "calendar-links", "Links in a calendar invite", `${urls.size} link${urls.size === 1 ? "" : "s"} in the event, shown in the calendar where mail filters do not look.`));
+  }
+  const files = props.filter((p) => p.name === "ATTACH" && /VALUE=BINARY|ENCODING=BASE64/i.test(p.params));
+  if (files.length) att.containerFindings.push(finding("medium", "embedded-object", "File inside the invite", `${files.length} file${files.length === 1 ? "" : "s"} embedded in the event.`));
+
+  // The description is the message the victim reads: give it to the language checks.
+  const description = [summary, ...get("DESCRIPTION"), ...get("LOCATION")].filter(Boolean).join("\n");
+  if (description) ctx.text.push(description);
+}
+
+/**
  * Look inside every attachment that is a container, add what was found to the
  * IOC lists, and recurse into what was extracted (to a fixed depth).
  *
@@ -438,6 +483,7 @@ export async function inspectContainers(iocs, body) {
     passwords: findPasswords(`${body?.text || ""}\n${(body?.html || "").replace(/<[^>]+>/g, " ")}`),
     urls: [],
     children: [],
+    text: [],
   };
   const added = { urls: [], children: [] };
 
@@ -456,6 +502,7 @@ export async function inspectContainers(iocs, body) {
         else if (/^PDF/.test(kind) || latin1(bytes.subarray(0, 1024)).includes("%PDF-")) await inspectPdf(att, bytes, ctx);
         else if (/^RTF/.test(kind)) inspectRtf(att, bytes, ctx);
         else if (/OLE2/.test(kind) && ext !== "msg") inspectOle(att, bytes);
+        else if (ext === "ics" || /calendar/i.test(att.contentType || "") || latin1(bytes.subarray(0, 200)).includes("BEGIN:VCALENDAR")) inspectCalendar(att, bytes, ctx);
       } catch (err) {
         // One malformed file must not stop the rest of the analysis.
         att.containerInfo = { kind: kind || "file", entries: [], notes: [`Could not be fully read: ${err.message}`] };
@@ -474,5 +521,8 @@ export async function inspectContainers(iocs, body) {
     iocs.urls.push(u);
     added.urls.push(u);
   }
+  // Text found inside files (a calendar invite's description) is part of what
+  // the reader sees, so the language checks read it too.
+  if (body && ctx.text.length) body.text = `${body.text || ""}\n${ctx.text.join("\n")}`;
   return added;
 }
