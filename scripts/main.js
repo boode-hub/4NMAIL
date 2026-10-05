@@ -1,6 +1,7 @@
 // Main Application Entry Point
 // Phishing Email Analyzer - Local Browser-Based
 
+import "./lightning.js";
 import { parseHeaders } from "./parse-headers.js";
 import { applyAccent, loadAccent, saveAccent, DEFAULT_ACCENT } from "./theme.js";
 import { parseAuth } from "./parse-auth.js";

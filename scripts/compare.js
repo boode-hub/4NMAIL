@@ -5,6 +5,7 @@
 // campaign, and what do they have in common". Everything runs locally, exactly
 // as on the main page — the same parsers, the same scoring.
 
+import "./lightning.js";
 import { parseHeaders } from "./parse-headers.js";
 import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";

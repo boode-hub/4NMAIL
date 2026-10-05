@@ -129,6 +129,84 @@ body {
   z-index: 0;
 }
 
+/* ===== BACKGROUND LIGHTNING (scripts/lightning.js) =====
+   Behind every panel (z-index -1 over the page background), never clickable.
+   Drawn with the accent colour, so it follows the theme picker. */
+.storm {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+.storm-glow,
+.storm-bolts {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+.storm-glow {
+  background: radial-gradient(
+    ellipse 55% 75% at var(--strike-x, 50%) 0%,
+    color-mix(in srgb, var(--accent) 14%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 4%, transparent) 45%,
+    transparent 75%
+  );
+}
+.storm-bolts {
+  filter: drop-shadow(0 0 3px var(--accent)) drop-shadow(0 0 10px var(--accent-glow));
+}
+.storm-bolts path {
+  fill: none;
+  stroke: var(--accent);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 1;
+}
+.storm-bolts .bolt-trunk {
+  stroke-width: 1.6;
+}
+.storm-bolts .bolt-fork {
+  stroke-width: 0.8;
+  opacity: 0.6;
+}
+.storm.striking .storm-glow {
+  animation: storm-flash 1.2s ease-out;
+}
+.storm.striking .storm-bolts {
+  animation: storm-bolt 0.9s ease-out;
+}
+.storm.striking .storm-bolts path {
+  animation: storm-draw 0.12s ease-out both;
+}
+/* A bright hit, a flicker, a second flash, then it fades into the dark. */
+@keyframes storm-flash {
+  0% { opacity: 0; }
+  6% { opacity: 1; }
+  14% { opacity: 0.25; }
+  22% { opacity: 0.8; }
+  100% { opacity: 0; }
+}
+@keyframes storm-bolt {
+  0% { opacity: 0; }
+  5% { opacity: 0.9; }
+  12% { opacity: 0.15; }
+  20% { opacity: 0.85; }
+  55% { opacity: 0.3; }
+  100% { opacity: 0; }
+}
+@keyframes storm-draw {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .storm {
+    display: none;
+  }
+}
+
 /* ===== TRUST BANNER ===== */
 .trust-banner {
   display: flex;

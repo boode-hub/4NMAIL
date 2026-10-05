@@ -468,6 +468,8 @@ Note that a relay sees the indicators and API keys that pass through it — use 
 
 **Settings → Theme colour** opens your browser's colour picker. The choice recolours only the green accent — buttons, pass badges, focus rings and the logo — while backgrounds and the red/amber severity colours stay fixed so they keep their meaning. It applies instantly, is remembered in this browser, and **Reset** returns to the default `#9fef00`. Exported reports always use the default colours.
 
+**Background lightning.** Every 10–25 seconds a thin bolt flickers in the empty margin beside the content, with a soft glow where it strikes: a distant storm behind the panels, drawn in the accent colour so it follows the theme. It never covers text or catches a click, pauses while the tab is in the background, and is switched off entirely when your system asks for reduced motion.
+
 ### Mobile
 
 The whole app is usable on a phone:
@@ -575,7 +577,8 @@ Raw email
 │   ├── file-type.js            Attachment content sniffing and HTML smuggling
 │   ├── compare-model.js        Side-by-side table and campaign correlation
 │   ├── compare.js              Compare page: drag and drop, rendering, exports
-│   └── theme.js                Accent colour picker palette
+│   ├── theme.js                Accent colour picker palette
+│   └── lightning.js            Background lightning effect
 ├── vendor/jsQR.js              QR code decoder (jsQR 1.4.0, Apache-2.0; licence in vendor/jsQR.LICENSE)
 ├── lookup-local.js             DNS and WHOIS/RDAP performed by this machine
 ├── fonts/                      Self-hosted Inter and JetBrains Mono
