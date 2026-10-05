@@ -439,6 +439,8 @@ function deduplicateAndFlag(iocs) {
       url.risks.push({ type: riskType, level: type, message });
     };
 
+    if (/^QR code/.test(url.source || "")) flag("medium", "From a QR code", "qr-link", "Hidden in a QR code image, where mail filters do not look");
+
     // A link does not have to point at a web page at all. "javascript:" runs
     // code in whatever page opens it and "data:text/html" carries the whole
     // fake login page inside the link, so neither ever touches a server a

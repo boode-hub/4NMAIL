@@ -50,6 +50,7 @@ jobs:
       - run: node tests/deception.test.mjs
       - run: node tests/containers.test.mjs
       - run: node tests/msg.test.mjs
+      - run: node tests/qr.test.mjs
 
   deploy:
     needs: test

@@ -349,20 +349,37 @@ async function inspectPdf(att, bytes, ctx) {
   // Compressed streams hide links and scripts: decode them, within limits.
   const decoded = [];
   const embeddedFiles = [];
+  const images = [];
   let streams = 0;
   for (const m of raw.matchAll(/(?<!end)stream\r?\n/g)) {
     if (streams >= LIMITS.pdfStreams) break;
-    const dictStart = raw.lastIndexOf("<<", m.index);
-    const dict = dictStart >= 0 && m.index - dictStart < 2000 ? raw.slice(dictStart, m.index) : "";
-    if (!/\/FlateDecode/.test(dict)) continue;
+    // The stream's dictionary runs from its "N 0 obj" (a nested << >> such as
+    // /DecodeParms means the nearest "<<" is not the start).
+    const objStart = raw.lastIndexOf("obj", m.index);
+    const dict = objStart >= 0 && m.index - objStart < 4000 ? raw.slice(objStart, m.index) : "";
     const end = raw.indexOf("endstream", m.index + m[0].length);
     if (end < 0) continue;
-    streams++;
     const data = bytes.subarray(m.index + m[0].length, end);
+    const isImage = /\/Subtype\s*\/Image/.test(dict);
+    // Images are kept for the QR code check: JPEGs as they are, others decoded.
+    if (isImage && /\/DCTDecode/.test(dict)) {
+      images.push({ jpeg: data });
+      continue;
+    }
+    if (!/\/FlateDecode/.test(dict)) continue;
+    streams++;
     const out = await inflate(data, "deflate", LIMITS.pdfStreamSize);
     if (!out) continue;
-    if (/\/EmbeddedFile/.test(dict)) embeddedFiles.push(out);
+    if (isImage) images.push({ raw: out, dict });
+    else if (/\/EmbeddedFile/.test(dict)) embeddedFiles.push(out);
     else decoded.push(latin1(out.subarray(0, 2 * 1024 * 1024)));
+  }
+  for (const img of images) {
+    if (ctx.qrBudget <= 0) break;
+    ctx.qrBudget--;
+    const pixels = img.jpeg ? null : pdfImagePixels(img.raw, img.dict);
+    const text = img.jpeg ? await qrFromImageBytes(img.jpeg) : pixels && (await decodeQr(pixels.rgba, pixels.width, pixels.height));
+    if (text) qrFound(att, text, ctx);
   }
 
   // Names can be written with #xx escapes ("/J#61vaScript") to dodge scanners.
@@ -406,6 +423,161 @@ async function inspectPdf(att, bytes, ctx) {
       depth: (att.depth || 0) + 1,
     });
   });
+}
+
+// ===== QR codes =====
+//
+// "Quishing": the link is a picture, so the mail filter never sees a URL and
+// the victim opens it on a phone, outside every desktop protection. Decoded
+// with jsQR (vendor/, Apache-2.0), loaded from this site the first time an
+// image needs it; without it everything else still works.
+
+let jsQRLoading = null;
+function loadJsQR() {
+  if (globalThis.jsQR) return Promise.resolve(globalThis.jsQR);
+  if (typeof document === "undefined") return Promise.resolve(null);
+  return (jsQRLoading ||= new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = new URL("../vendor/jsQR.js", import.meta.url).href;
+    script.onload = () => resolve(globalThis.jsQR || null);
+    script.onerror = () => resolve(null);
+    document.head.append(script);
+  }));
+}
+
+/** The text of a QR code in RGBA pixels, or null. */
+export async function decodeQr(rgba, width, height) {
+  const jsQR = await loadJsQR();
+  if (!jsQR) return null;
+  return jsQR(rgba, width, height)?.data || null;
+}
+
+/** Decode an image file (PNG, JPEG, GIF, BMP, WebP) with the browser and look for a QR code. */
+async function qrFromImageBytes(bytes) {
+  if (typeof createImageBitmap === "undefined") return null;
+  let bitmap;
+  try {
+    bitmap = await createImageBitmap(new Blob([bytes]));
+  } catch {
+    return null; // not an image the browser can decode
+  }
+  if (bitmap.width < 40 || bitmap.height < 40) {
+    bitmap.close?.();
+    return null; // icons and tracking pixels
+  }
+  const scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+  const width = Math.round(bitmap.width * scale);
+  const height = Math.round(bitmap.height * scale);
+  const canvas = typeof OffscreenCanvas !== "undefined" ? new OffscreenCanvas(width, height) : Object.assign(document.createElement("canvas"), { width, height });
+  const g = canvas.getContext("2d", { willReadFrequently: true });
+  g.fillStyle = "#fff"; // transparent images: dark modules on white
+  g.fillRect(0, 0, width, height);
+  g.drawImage(bitmap, 0, 0, width, height);
+  bitmap.close?.();
+  return decodeQr(g.getImageData(0, 0, width, height).data, width, height);
+}
+
+/** Undo PNG row prediction (/Predictor 10–15) on decoded PDF image data. */
+function unpredictPng(data, rowBytes, bpp, rows) {
+  const out = new Uint8Array(rowBytes * rows);
+  for (let y = 0; y < rows; y++) {
+    const at = y * (rowBytes + 1);
+    if (at + rowBytes >= data.length) break;
+    const filter = data[at];
+    for (let i = 0; i < rowBytes; i++) {
+      const a = i >= bpp ? out[y * rowBytes + i - bpp] : 0;
+      const b = y ? out[(y - 1) * rowBytes + i] : 0;
+      const c = y && i >= bpp ? out[(y - 1) * rowBytes + i - bpp] : 0;
+      let v = data[at + 1 + i];
+      if (filter === 1) v += a;
+      else if (filter === 2) v += b;
+      else if (filter === 3) v += (a + b) >> 1;
+      else if (filter === 4) {
+        const p = a + b - c;
+        const pa = Math.abs(p - a);
+        const pb = Math.abs(p - b);
+        const pc = Math.abs(p - c);
+        v += pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+      }
+      out[y * rowBytes + i] = v & 255;
+    }
+  }
+  return out;
+}
+
+/**
+ * A decoded PDF image as RGBA. Handles 1- and 8-bit grey, RGB and CMYK, with
+ * or without PNG prediction — what QR codes in PDFs are stored as.
+ * ponytail: indexed and 2/4/16-bit images are skipped; add when a sample needs it.
+ */
+export function pdfImagePixels(data, dict) {
+  const num = (name) => Number((dict.match(new RegExp(`/${name}\\s+(\\d+)`)) || [])[1] || 0);
+  const width = num("Width");
+  const height = num("Height");
+  const imageMask = /\/ImageMask\s+true/.test(dict);
+  const bpc = imageMask ? 1 : num("BitsPerComponent") || 8;
+  if (!width || !height || width * height > 16e6 || (bpc !== 1 && bpc !== 8) || /\/Indexed/.test(dict)) return null;
+  let colors = /\/DeviceRGB|\/CalRGB/.test(dict) ? 3 : /\/DeviceCMYK/.test(dict) ? 4 : /\/DeviceGray|\/CalGray/.test(dict) || bpc === 1 ? 1 : 0;
+  const rowBytes = (n) => Math.ceil((width * n * bpc) / 8);
+  const predicted = num("Predictor") >= 10;
+  // ICC-based colour: infer the component count from the data size.
+  if (!colors) colors = [1, 3, 4].find((n) => data.length === (rowBytes(n) + (predicted ? 1 : 0)) * height) || 0;
+  if (!colors) return null;
+  const stride = rowBytes(colors);
+  const px = predicted ? unpredictPng(data, stride, Math.max(1, (colors * bpc) >> 3), height) : data;
+  if (px.length < stride * height) return null;
+
+  const invert = /\/Decode\s*\[\s*1(\.0)?\s+0/.test(dict);
+  const rgba = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const row = y * stride;
+      let r;
+      let g;
+      let b;
+      if (bpc === 1) {
+        const bit = (px[row + (x >> 3)] >> (7 - (x & 7))) & 1;
+        r = g = b = bit ^ invert ? 255 : 0;
+      } else if (colors === 1) {
+        r = g = b = px[row + x];
+      } else if (colors === 3) {
+        [r, g, b] = [px[row + x * 3], px[row + x * 3 + 1], px[row + x * 3 + 2]];
+      } else {
+        const k = px[row + x * 4 + 3];
+        [r, g, b] = [0, 1, 2].map((i) => 255 - Math.min(255, px[row + x * 4 + i] + k));
+      }
+      const o = (y * width + x) * 4;
+      rgba[o] = r;
+      rgba[o + 1] = g;
+      rgba[o + 2] = b;
+      rgba[o + 3] = 255;
+    }
+  }
+  return { rgba, width, height };
+}
+
+function qrFound(att, text, ctx) {
+  att.containerInfo ||= { kind: "Image", entries: [], notes: [] };
+  att.containerInfo.entries.push(`QR code: ${text.slice(0, 300)}`);
+  const url = /^https?:\/\//i.test(text.trim()) ? text.trim() : /^www\./i.test(text.trim()) ? `http://${text.trim()}` : null;
+  if (url) ctx.urls.push({ value: url, source: `QR code in ${att.value}`, isMismatch: false });
+  att.containerFindings.push(
+    finding(
+      "medium",
+      "qr-code",
+      url ? "QR code with a link" : "QR code",
+      url
+        ? `Scanning it opens ${url} — on a phone, outside the mail filter and the desktop's protections.`
+        : `The QR code contains: ${text.slice(0, 120)}`,
+    ),
+  );
+}
+
+async function inspectImage(att, bytes, ctx) {
+  if (ctx.qrBudget <= 0 || bytes.length > 15 * 1024 * 1024) return;
+  ctx.qrBudget--;
+  const text = await qrFromImageBytes(bytes);
+  if (text) qrFound(att, text, ctx);
 }
 
 function inspectRtf(att, bytes, ctx) {
@@ -484,6 +656,7 @@ export async function inspectContainers(iocs, body) {
     urls: [],
     children: [],
     text: [],
+    qrBudget: 12, // images decoded per message; each costs a few hundred milliseconds
   };
   const added = { urls: [], children: [] };
 
@@ -502,6 +675,7 @@ export async function inspectContainers(iocs, body) {
         else if (/^PDF/.test(kind) || latin1(bytes.subarray(0, 1024)).includes("%PDF-")) await inspectPdf(att, bytes, ctx);
         else if (/^RTF/.test(kind)) inspectRtf(att, bytes, ctx);
         else if (/OLE2/.test(kind) && ext !== "msg") inspectOle(att, bytes);
+        else if (/ image$/.test(kind) || /^image\/(png|jpe?g|gif|bmp|webp)/i.test(att.contentType || "")) await inspectImage(att, bytes, ctx);
         else if (ext === "ics" || /calendar/i.test(att.contentType || "") || latin1(bytes.subarray(0, 200)).includes("BEGIN:VCALENDAR")) inspectCalendar(att, bytes, ctx);
       } catch (err) {
         // One malformed file must not stop the rest of the analysis.

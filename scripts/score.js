@@ -68,7 +68,7 @@ export function calculateScore(auth, iocs, languageAnalysis, headers, identity) 
   // authenticates. Weighted normally, a login page that posts passwords to a
   // Telegram bot scored "Low Risk 23" because the indicator category is capped
   // at a quarter of the total. These set a floor instead of adding points.
-  const decisive = decisiveFindings(iocs, identity);
+  const decisive = decisiveFindings(iocs, identity, languageAnalysis);
   if (decisive.high.length && total < TIER_HIGH) total = TIER_HIGH;
   else if (decisive.suspicious.length && total < TIER_SUSPICIOUS) total = TIER_SUSPICIOUS;
 
@@ -163,6 +163,7 @@ export function classifyAttack(auth, iocs, lang, identity) {
   const callback = (lang?.categories?.social?.matches || []).some((m) => m.tier === "strong" && /\d[\d\s().-]{7,}\d/.test(m.phrase));
   if (callback && !urls.some((u) => !/^mailto:/i.test(u.value))) types.push("Callback phishing");
   if (strong("lure") >= 2) types.push("Prize / reward scam");
+  if (has(urls, "qr-link")) types.push("QR code phishing");
   if (ids.some((i) => /lookalike|display-name|own-|mixed-script|thread-impersonation/.test(i))) types.push("Impersonation");
   if (auth?.mechanisms?.dmarc?.status === "fail" || auth?.domainAlignment?.dmarcAligned === false) types.push("Sender spoofing");
   return types;
@@ -173,9 +174,18 @@ export function classifyAttack(auth, iocs, lang, identity) {
  * a Telegram bot, hides a file inside an HTML page to write it to disk, or
  * sends a Windows program under a document's name.
  */
-function decisiveFindings(iocs, identity) {
+function decisiveFindings(iocs, identity, lang) {
   const high = [];
   const suspicious = [];
+
+  // A link hidden in a QR code, with wording that pushes the reader to act:
+  // quishing. A QR code alone is common in legitimate mail (tickets, sign-in
+  // pairing); together with pressure it is the pattern.
+  const qrLinks = (iocs?.urls || []).filter((u) => (u.risks || []).some((r) => r.type === "qr-link"));
+  const pressure = ["urgency", "credential", "authority"].some((k) => (lang?.categories?.[k]?.strongCount ?? 0) > 0);
+  if (qrLinks.length && pressure) {
+    suspicious.push(`A QR code hides a link (${qrLinks.slice(0, 2).map((u) => u.value).join(", ")}) and the wording pressures the reader to scan it`);
+  }
 
   // A conversation that could not have happened — a fake reply, a date with
   // the wrong weekday, the sender impersonating someone from the thread — is

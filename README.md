@@ -55,7 +55,8 @@ All analysis runs locally in your browser. Nothing is uploaded; the only data th
 - **Checks who it claims to be** — display names that carry another address or a brand they do not own, lookalike and mixed-alphabet sending domains, and replies pointed at free webmail.
 - **Protects your own organization** — optionally list your domains in Settings, and lookalikes of them (`c0ntoso.com`, `contoso.co`, `contoso-payroll.com`) are caught in senders, Reply-To addresses and links.
 - **Catches Unicode tricks** — right-to-left overrides that hide a file's real extension, invisible characters inside words, and words that mix alphabets.
-- **Looks inside attachments** — the real file type from its first bytes, so "Invoice.pdf" that is actually a program is caught, along with HTML smuggling. ZIP archives are opened (with the password from the email when it is given), Office files are checked for macros, remote templates and DDE, and PDFs for JavaScript, launch actions and hidden links.
+- **Looks inside attachments** — the real file type from its first bytes, so "Invoice.pdf" that is actually a program is caught, along with HTML smuggling. ZIP archives are opened (with the password from the email when it is given), Office files are checked for macros, remote templates and DDE, and PDFs for JavaScript, launch actions and hidden links. QR codes in images and PDFs are decoded, and calendar invites are read.
+- **Outlook .msg files** — opened directly, attachments and all, no conversion needed.
 - **Names the attack** — a one-line "Looks like" verdict: credential phishing, malware delivery, BEC / payment fraud, extortion, callback phishing and more.
 - **Reads the wording** — urgency, fear, financial fraud, credential harvesting, and Business Email Compromise / payment fraud, matched by pattern as well as by phrase.
 - **Asks your own machine, not a service** — live DNS (SPF, DMARC, MX) and WHOIS/registration for every domain and IP, resolved locally with no API key.
@@ -76,7 +77,7 @@ Open **https://boode-hub.github.io/Phishing-Analyzer/** — no install. Everythi
 
 ### Run it locally
 
-Requires [Node.js](https://nodejs.org/). There are no dependencies to install and no build step.
+Requires [Node.js](https://nodejs.org/). There are no dependencies to install and no build step (the one third-party library, jsQR, is already in `vendor/`).
 
 ```bash
 git clone https://github.com/boode-hub/Phishing-Analyzer.git
@@ -148,8 +149,8 @@ The score combines three categories, each capped at 100 **before** weighting so 
 - A message where SPF, DKIM and DMARC all fail on a misaligned domain reaches **High Risk** on authentication alone.
 - **Some findings decide the verdict on their own**, however the message authenticates, and are listed first:
   - **High Risk** — data would be sent to a collection service such as a Telegram bot or Discord webhook; a file is hidden inside an HTML page and written to disk (HTML smuggling); a file's bytes are a program whatever its name says; a file name hides its real extension with a right-to-left override; an archive carries a program; an Office document loads a remote template, links a remote object, contains a DDE command or an auto-running macro; a PDF can launch a program; an RTF carries an Equation Editor exploit object.
-  - **At least Suspicious** — a login page arrives as an attachment; the message itself asks for a password; a document contains macros or PDF JavaScript; a password-protected archive comes with its password in the email; the quoted conversation is fabricated; two or more payment-fraud (BEC) signals.
-- **Looks like** — a short line naming the kind of attack the evidence adds up to: BEC / payment fraud, credential phishing, malware delivery, extortion / sextortion, advance-fee scam, callback phishing, prize / reward scam, impersonation, sender spoofing. It is shown in the summary, the comparison table and every export.
+  - **At least Suspicious** — a login page arrives as an attachment; the message itself asks for a password; a document contains macros or PDF JavaScript; a password-protected archive comes with its password in the email; the quoted conversation is fabricated; a QR code hides a link and the wording pressures the reader; two or more payment-fraud (BEC) signals.
+- **Looks like** — a short line naming the kind of attack the evidence adds up to: BEC / payment fraud, credential phishing, malware delivery, extortion / sextortion, advance-fee scam, callback phishing, prize / reward scam, QR code phishing, impersonation, sender spoofing. It is shown in the summary, the comparison table and every export.
 - Repeated low-severity findings have diminishing returns — the twentieth shortened link adds almost nothing.
 - **Every point comes with a reason**, listed under its category in the **Analysis Result** panel.
 - **Caveats** warn when a low score is not a clean result:
@@ -262,6 +263,8 @@ Running the attachment to watch it was considered and rejected: a browser sandbo
 - **PDFs** — JavaScript, actions that run on open, launch actions, embedded files (extracted), form submission and rich media. Compressed streams are decompressed and names written with `#xx` escapes are decoded, so hidden links and scripts are found; every link becomes a URL indicator.
 - **RTF** — embedded objects, objects that update themselves on open, the Equation Editor exploit (CVE-2017-11882), remote templates and hyperlinks.
 - **Calendar invites** (`.ics` files and meeting-request parts) — the event's organizer, title and start, and every link in its description, location or URL, unfolded and unescaped first so a link split across lines is still found. Calendars add a requested event automatically, so its links reach the victim even if the email is never opened. The description is also read by the language checks.
+
+**QR codes ("quishing")** — image attachments, inline images and images inside PDFs (JPEG, and 1-/8-bit grey, RGB or CMYK images with or without PNG prediction) are scanned for QR codes. A link found in one becomes a URL indicator flagged **From a QR code**, since a code moves the click to a phone, outside the mail filter and the desktop's protections. A QR link together with urgent, threatening or credential wording sets the verdict to at least **Suspicious** and names the attack **QR code phishing**; a QR code on its own (a ticket, a sign-in pairing) does not. Decoding uses [jsQR](https://github.com/cozmo/jsQR) (Apache-2.0), served from this site's `vendor/` folder and loaded only when an image needs scanning — it runs in the browser like everything else, and the strict CSP is unchanged. Up to 12 images are scanned per message; icons and tracking pixels are skipped.
 
 Decompression uses the browser's built-in decompressor, with size limits on every file and on the total, so a ZIP bomb cannot exhaust memory.
 
@@ -515,7 +518,7 @@ The app parses hostile input, so it is built to stay harmless even if the parsin
 
 ## How it works
 
-A pure HTML, CSS and JavaScript application — ES modules, no framework, no build step, no dependencies. The Web Crypto API provides SHA-256.
+A pure HTML, CSS and JavaScript application — ES modules, no framework, no build step, no package dependencies (jsQR is vendored in `vendor/`). The Web Crypto API provides SHA-256.
 
 ```
 Raw email
@@ -573,6 +576,7 @@ Raw email
 │   ├── compare-model.js        Side-by-side table and campaign correlation
 │   ├── compare.js              Compare page: drag and drop, rendering, exports
 │   └── theme.js                Accent colour picker palette
+├── vendor/jsQR.js              QR code decoder (jsQR 1.4.0, Apache-2.0; licence in vendor/jsQR.LICENSE)
 ├── lookup-local.js             DNS and WHOIS/RDAP performed by this machine
 ├── fonts/                      Self-hosted Inter and JetBrains Mono
 ├── tests/                      Test suites (see below)
@@ -612,6 +616,7 @@ node tests/html.test.mjs         # body/attachment detection, static HTML readin
 node tests/deception.test.mjs    # your domains, Unicode tricks, attack type
 node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF, calendar invites
 node tests/msg.test.mjs          # Outlook .msg: Compound File reading (mini and regular streams), conversion
+node tests/qr.test.mjs           # QR codes from a spec-built encoder: images, PDF images, verdict floor
 node tests/imports.test.mjs      # every cross-module call is imported
 ```
 
@@ -637,8 +642,9 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | deception | 14 |
 | containers | 14 |
 | msg | 5 |
+| qr | 5 |
 | imports | 1 |
-| **Total** | **393** |
+| **Total** | **398** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 
@@ -669,4 +675,4 @@ node tests/imports.test.mjs      # every cross-module call is imported
 
 ## License
 
-MIT
+MIT. `vendor/jsQR.js` is jsQR by Cosmo Wolfe, Apache License 2.0 (see `vendor/jsQR.LICENSE`).
