@@ -21,6 +21,7 @@
 
 import { sniffFileType } from "./file-type.js";
 import { crc32 } from "./file-export.js";
+import { msgToEml } from "./msg-parser.js";
 
 const LIMITS = {
   entriesListed: 500,
@@ -148,10 +149,12 @@ function zipCryptoDecrypt(data, password, checkByte) {
 }
 
 /** One entry's content, decrypted with `password` if it needs one. */
-export async function readZipEntry(bytes, entry, password = null) {
+export async function readZipEntry(bytes, entry, password = null, limit = LIMITS.entrySize) {
   const at = entry.localOffset;
   if (at + 30 > bytes.length || u32(bytes, at) !== 0x04034b50) return null;
-  if (entry.size > LIMITS.entrySize) return null;
+  // The declared size can lie; the limit applies to what actually decompresses.
+  limit = Math.min(limit, LIMITS.entrySize);
+  if (entry.size > limit) return null;
   const start = at + 30 + u16(bytes, at + 26) + u16(bytes, at + 28);
   let data = bytes.subarray(start, start + entry.compressedSize);
 
@@ -162,8 +165,8 @@ export async function readZipEntry(bytes, entry, password = null) {
     if (!data) return null;
   }
   let out = null;
-  if (entry.method === 0) out = data.slice();
-  else if (entry.method === 8) out = await inflate(data, "deflate-raw", LIMITS.entrySize);
+  if (entry.method === 0) out = data.length <= limit ? data.slice() : null;
+  else if (entry.method === 8) out = await inflate(data, "deflate-raw", limit);
   if (!out) return null;
   // A wrong password can pass the one-byte check; the CRC cannot be fooled.
   if (entry.encrypted && crc32(out) !== entry.crc) return null;
@@ -200,16 +203,9 @@ async function inspectZip(att, bytes, ctx) {
   if (!dir) return;
   const names = dir.entries.map((e) => e.name);
 
-  if (names.includes("[Content_Types].xml")) {
-    await inspectOoxml(att, bytes, dir, ctx);
-    return;
-  }
-
-  const info = { kind: "Archive", entries: names.slice(0, 50), total: dir.total, notes: [] };
-  att.containerInfo = info;
   const files = dir.entries.filter((e) => !e.name.endsWith("/"));
-  const encrypted = files.filter((e) => e.encrypted);
-
+  // Checked for every ZIP: adding a [Content_Types].xml must not turn an
+  // archive of programs into an innocent-looking "document".
   const programs = files.filter((e) => PROGRAM_EXT.has(extOf(e.name)) || /\.[a-z0-9]{2,4}\.(exe|scr|js|vbs|bat|cmd|lnk|hta)$/i.test(e.name));
   if (programs.length) {
     att.containerFindings.push(
@@ -218,6 +214,15 @@ async function inspectZip(att, bytes, ctx) {
   }
   const nested = files.filter((e) => ARCHIVE_EXT.has(extOf(e.name)));
   if (nested.length) att.containerFindings.push(finding("medium", "nested-archive", "Archive inside archive", `Contains ${nested.slice(0, 3).map((e) => e.name).join(", ")} — layered archives defeat scanners`));
+
+  if (names.includes("[Content_Types].xml")) {
+    await inspectOoxml(att, bytes, dir, ctx);
+    return;
+  }
+
+  const info = { kind: "Archive", entries: names.slice(0, 50), total: dir.total, notes: [] };
+  att.containerInfo = info;
+  const encrypted = files.filter((e) => e.encrypted);
 
   let password = null;
   if (encrypted.length) {
@@ -248,17 +253,16 @@ async function inspectZip(att, bytes, ctx) {
 
   // Extract what can be read, so each file is hashed, typed and checked too.
   let extracted = 0;
-  let total = 0;
   for (const entry of files) {
-    if (extracted >= LIMITS.entriesExtracted || total + entry.size > LIMITS.totalExtracted) {
+    if (extracted >= LIMITS.entriesExtracted || ctx.extractBudget <= 0) {
       info.notes.push(`Only the first ${extracted} files were extracted.`);
       break;
     }
     if (entry.encrypted && !password) continue;
-    const content = await readZipEntry(bytes, entry, entry.encrypted ? password : null);
+    const content = await readZipEntry(bytes, entry, entry.encrypted ? password : null, ctx.extractBudget);
     if (!content) continue;
     extracted++;
-    total += content.length;
+    ctx.extractBudget -= content.length;
     ctx.children.push({
       value: entry.name.split("/").pop() || entry.name,
       contentType: sniffFileType(content)?.label || "unknown",
@@ -330,7 +334,8 @@ function inspectOle(att, bytes) {
     att.containerFindings.push(finding("high", "macros", "Contains macros", "The document carries VBA macros, which run code when enabled."));
     att.containerInfo.entries.push("VBA macros");
   }
-  if (/Auto_?Open|Document_Open|Workbook_Open|AutoExec|Shell\(|WScript\.Shell|CreateObject/i.test(text)) {
+  // Only inside a macro project: the same words in ordinary document text mean nothing.
+  if (att.containerInfo.entries.length && /Auto_?Open|Document_Open|Workbook_Open|AutoExec|Shell\(|WScript\.Shell|CreateObject/i.test(text)) {
     att.containerFindings.push(finding("high", "macro-autorun", "Auto-running macro", "Macro code that starts by itself or launches programs (AutoOpen / Document_Open / Shell)."));
   }
   if (has("Ole10Native")) {
@@ -362,16 +367,21 @@ async function inspectPdf(att, bytes, ctx) {
     const data = bytes.subarray(m.index + m[0].length, end);
     const isImage = /\/Subtype\s*\/Image/.test(dict);
     // Images are kept for the QR code check: JPEGs as they are, others decoded.
+    if (isImage && images.length >= ctx.qrBudget) continue; // not decoded, so not decompressed
     if (isImage && /\/DCTDecode/.test(dict)) {
       images.push({ jpeg: data });
       continue;
     }
     if (!/\/FlateDecode/.test(dict)) continue;
     streams++;
-    const out = await inflate(data, "deflate", LIMITS.pdfStreamSize);
+    const embedded = /\/EmbeddedFile/.test(dict);
+    const out = await inflate(data, "deflate", embedded ? Math.min(LIMITS.pdfStreamSize, Math.max(0, ctx.extractBudget)) : LIMITS.pdfStreamSize);
     if (!out) continue;
     if (isImage) images.push({ raw: out, dict });
-    else if (/\/EmbeddedFile/.test(dict)) embeddedFiles.push(out);
+    else if (embedded) {
+      ctx.extractBudget -= out.length;
+      embeddedFiles.push(out);
+    }
     else decoded.push(latin1(out.subarray(0, 2 * 1024 * 1024)));
   }
   for (const img of images) {
@@ -580,6 +590,32 @@ async function inspectImage(att, bytes, ctx) {
   if (text) qrFound(att, text, ctx);
 }
 
+// ===== attached Outlook items =====
+
+const SUBSTG = "_\0_\0s\0u\0b\0s\0t\0g\x001\0.\x000\0_\0"; // "__substg1.0_" in a directory entry
+
+function isOutlookItem(bytes, ext) {
+  return ext === "msg" || latin1(bytes.subarray(0, Math.min(bytes.length, 4 * 1024 * 1024))).includes(SUBSTG);
+}
+
+/** An .msg forwarded as an attachment becomes an attached email the analyst can open. */
+function convertAttachedMsg(att, bytes, ctx) {
+  att.containerInfo = { kind: "Outlook message", entries: [], notes: [] };
+  const eml = new TextEncoder().encode(msgToEml(bytes));
+  const name = `${String(att.value || "message").replace(/\.msg$/i, "")}.eml`;
+  att.containerInfo.notes.push(`Converted to ${name} — listed below, with an "Analyze this attached email" button.`);
+  ctx.children.push({
+    value: name,
+    contentType: "message/rfc822",
+    size: eml.length,
+    source: `Converted from ${att.value}`,
+    inline: false,
+    embeddedIn: att.value,
+    bytes: eml,
+    depth: (att.depth || 0) + 1,
+  });
+}
+
 function inspectRtf(att, bytes, ctx) {
   const text = latin1(bytes.subarray(0, Math.min(bytes.length, 20 * 1024 * 1024)));
   att.containerInfo = { kind: "RTF document", entries: [], notes: [] };
@@ -657,6 +693,7 @@ export async function inspectContainers(iocs, body) {
     children: [],
     text: [],
     qrBudget: 12, // images decoded per message; each costs a few hundred milliseconds
+    extractBudget: LIMITS.totalExtracted, // bytes extracted from all files together
   };
   const added = { urls: [], children: [] };
 
@@ -674,7 +711,8 @@ export async function inspectContainers(iocs, body) {
         // Readers accept a PDF header anywhere in the first 1 KB; so do attackers.
         else if (/^PDF/.test(kind) || latin1(bytes.subarray(0, 1024)).includes("%PDF-")) await inspectPdf(att, bytes, ctx);
         else if (/^RTF/.test(kind)) inspectRtf(att, bytes, ctx);
-        else if (/OLE2/.test(kind) && ext !== "msg") inspectOle(att, bytes);
+        else if (/OLE2/.test(kind) && isOutlookItem(bytes, ext)) convertAttachedMsg(att, bytes, ctx);
+        else if (/OLE2/.test(kind)) inspectOle(att, bytes);
         else if (/ image$/.test(kind) || /^image\/(png|jpe?g|gif|bmp|webp)/i.test(att.contentType || "")) await inspectImage(att, bytes, ctx);
         else if (ext === "ics" || /calendar/i.test(att.contentType || "") || latin1(bytes.subarray(0, 200)).includes("BEGIN:VCALENDAR")) inspectCalendar(att, bytes, ctx);
       } catch (err) {

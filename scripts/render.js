@@ -3,6 +3,7 @@ import { URL_DECODERS, detectEncodings, safeRun } from "./url-decode.js";
 import { buildPreview, textAsPreview, describePreview } from "./preview.js";
 import { looksLikeHtml } from "./html-inspect.js";
 import { revealControls } from "./analyze-unicode.js";
+import { MAX_HIGHLIGHTS } from "./analyze-language.js";
 
 // Rows rendered per IOC table before the rest are collapsed behind a button.
 // A bulk HTML email routinely carries 100+ links; rendering them all built
@@ -1012,7 +1013,7 @@ export function renderBody(container, body, languageAnalysis, thread) {
 
   const threadCount = thread?.messages?.length || 0;
   const threadSuspect = (thread?.findings || []).some((f) => f.severity === "high");
-  container.innerHTML = `<div class="body-tabs"><button class="tab-btn active" data-tab="plain">Plain Text</button><button class="tab-btn" data-tab="html">HTML Preview</button><button class="tab-btn${threadSuspect ? " tab-alert" : ""}" data-tab="thread">Thread${threadCount ? ` (${threadCount})` : ""}</button></div><div class="tab-content hidden" id="tab-thread">${renderThread(thread)}</div><div class="tab-content" id="tab-plain"><pre class="body-text">${highlightedText}</pre></div><div class="tab-content hidden" id="tab-html">
+  container.innerHTML = `<div class="body-tabs"><button class="tab-btn active" data-tab="plain">Plain Text</button><button class="tab-btn" data-tab="html">HTML Preview</button><button class="tab-btn${threadSuspect ? " tab-alert" : ""}" data-tab="thread">Thread${threadCount ? ` (${threadCount})` : ""}</button></div><div class="tab-content hidden" id="tab-thread">${renderThread(thread)}</div><div class="tab-content" id="tab-plain">${(languageAnalysis?.matches?.length || 0) > MAX_HIGHLIGHTS ? `<p class="body-note">Highlighting stops after the first ${MAX_HIGHLIGHTS.toLocaleString()} phrases to keep the page responsive — all ${languageAnalysis.matches.length.toLocaleString()} are counted in the Language card.</p>` : ""}<pre class="body-text">${highlightedText}</pre></div><div class="tab-content hidden" id="tab-html">
       ${forwardNote}
       <div class="preview-bar">
         <p class="preview-note">Rendered safely: nothing in this preview runs or contacts the sender.${stats ? ` <span class="preview-stats">${esc(stats)}</span>` : ""}</p>

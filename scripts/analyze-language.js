@@ -215,7 +215,7 @@ export function analyzeLanguage(text) {
       broadCount,
       weight: config.weight,
     };
-    allMatches.push(...matches);
+    for (const m of matches) allMatches.push(m); // spread overflows the stack on huge bodies
   }
 
   const totalScore = Math.min(
@@ -278,6 +278,8 @@ function detectLanguage(text) {
  * words in two categories) merge into one mark carrying every category; a mark
  * made only of broad words is styled more quietly.
  */
+export const MAX_HIGHLIGHTS = 1500;
+
 function generateHighlightedText(text, matches) {
   if (!matches.length) return escapeHtml(text);
 
@@ -294,9 +296,12 @@ function generateHighlightedText(text, matches) {
     }
   }
 
+  // Every highlight is an element; a huge body with tens of thousands of them
+  // freezes the page. Past the cap the text is shown plain — every phrase is
+  // still counted and listed.
   let result = "";
   let lastIndex = 0;
-  for (const m of merged) {
+  for (const m of merged.slice(0, MAX_HIGHLIGHTS)) {
     result += escapeHtml(text.substring(lastIndex, m.index));
     const primary = m.categories[0];
     const labels = m.categories.map(getCategoryLabel).join(", ");

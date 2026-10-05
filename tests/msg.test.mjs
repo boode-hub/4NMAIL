@@ -10,9 +10,19 @@ import { existsSync, readFileSync } from "node:fs";
 import { msgToEml, isMsgFile, readCompoundFile } from "../scripts/msg-parser.js";
 import { parseHeaders } from "../scripts/parse-headers.js";
 import { parseBody } from "../scripts/parse-body.js";
+import { extractIOCs } from "../scripts/extract-iocs.js";
+import { inspectContainers } from "../scripts/inspect-files.js";
 
 let passed = 0;
 const failures = [];
+async function asyncTest(name, fn) {
+  try {
+    await fn();
+    passed++;
+  } catch (e) {
+    failures.push({ name, message: e.message });
+  }
+}
 function test(name, fn) {
   try {
     fn();
@@ -278,6 +288,46 @@ test("without Internet headers, the headers are rebuilt from the properties", ()
   assert.match(eml, /^Date: Mon, 05 Oct 2026 09:00:00 \+0000$/m);
   assert.match(eml, /^Subject: =\?UTF-8\?B\?/m, "non-ASCII subject encoded");
   assert.match(eml, /X-Converted-From/);
+});
+
+await asyncTest("an .msg attached to an email becomes an attached email to analyze", async () => {
+  const msg = sampleMsg();
+  const body = { text: "fwd", links: [], attachments: [{ filename: "Suspicious mail.msg", contentType: "application/vnd.ms-outlook", size: msg.length, bytes: msg }] };
+  const iocs = extractIOCs({ from: { email: "a@b.test" } }, body);
+  await inspectContainers(iocs, body);
+  const eml = iocs.attachments.find((a) => a.value === "Suspicious mail.eml");
+  assert.ok(eml, iocs.attachments.map((a) => a.value).join());
+  assert.equal(eml.contentType, "message/rfc822");
+  assert.match(new TextDecoder().decode(eml.bytes), /From: PayPal <service@paypa1\.com>/);
+});
+
+test("line breaks in properties cannot add headers (no forged authentication results)", () => {
+  const forged = writeCfb(
+    Object.fromEntries([
+      str("0037", "hello"),
+      str("1000", "body"),
+      str("5D01", "evil@bad.test\r\nAuthentication-Results: mx; spf=pass dkim=pass dmarc=pass"),
+      str("1035", "<id@bad.test>\r\nX-Injected: yes"),
+    ]),
+  );
+  const eml = msgToEml(forged);
+  const headers = parseHeaders(eml);
+  assert.equal(headers.all["authentication-results"], undefined, eml.slice(0, 300));
+  assert.equal(headers.all["x-injected"], undefined);
+});
+
+test("damaged and hostile files fail cleanly and fast", () => {
+  // Chains that loop or point past the file must not loop or over-allocate.
+  const bytes = sampleMsg();
+  const v = new DataView(bytes.buffer);
+  for (let i = 0; i < 128; i++) v.setUint32(512 + i * 4, i, true); // every FAT entry points at itself
+  const start = performance.now();
+  try {
+    msgToEml(bytes);
+  } catch (e) {
+    assert.ok(e instanceof Error);
+  }
+  assert.ok(performance.now() - start < 2000);
 });
 
 test("a damaged or foreign file fails with a clear message, never hangs", () => {

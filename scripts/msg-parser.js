@@ -11,7 +11,6 @@
 
 const SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 const END_OF_CHAIN = 0xfffffffe;
-const MAX_SECTORS = 1 << 22; // a chain longer than this is corrupt or hostile
 
 export function isMsgFile(bytes) {
   return bytes?.length >= 512 && SIGNATURE.every((b, i) => bytes[i] === b);
@@ -55,10 +54,13 @@ export function readCompoundFile(bytes) {
     for (let i = 0; i < sectorSize / 4; i++) fat.push(u32(at + i * 4));
   }
 
-  const chain = (start, table) => {
+  // A chain can never be longer than the file has sectors; a longer one is
+  // corrupt or hostile, and following it would allocate far more than the file.
+  const sectorCount = Math.ceil(bytes.length / sectorSize);
+  const chain = (start, table, limit = sectorCount) => {
     const out = [];
     const seen = new Set();
-    for (let s = start; s < END_OF_CHAIN && s < table.length && !seen.has(s) && out.length < MAX_SECTORS; s = table[s]) {
+    for (let s = start; s < END_OF_CHAIN && s < table.length && !seen.has(s) && out.length < limit; s = table[s]) {
       seen.add(s);
       out.push(s);
     }
@@ -116,14 +118,14 @@ export function readCompoundFile(bytes) {
       for (let i = 0; i + 4 <= raw.length; i += 4) miniFat.push(mv.getUint32(i, true));
     }
   }
-  const miniStream = readChain(root.start, root.size);
+  const miniStream = readChain(root.start, Math.min(root.size, bytes.length));
 
   const readStream = (entry) => {
     const size = Math.min(entry.size, bytes.length);
     if (size < miniCutoff) {
       const out = new Uint8Array(size);
       let at = 0;
-      for (const s of chain(entry.start, miniFat)) {
+      for (const s of chain(entry.start, miniFat, Math.ceil(miniStream.length / miniSectorSize))) {
         if (at >= size) break;
         const from = s * miniSectorSize;
         const part = miniStream.subarray(from, Math.min(from + miniSectorSize, from + size - at));
@@ -225,7 +227,7 @@ function base64Lines(bytes) {
 }
 const utf8 = (s) => new TextEncoder().encode(s);
 const quote = (s) => String(s).replace(/[\r\n"\\]/g, "_");
-const encodedWord = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${btoa(String.fromCharCode(...utf8(s)))}?=`);
+const encodedWord = (s) => (/^[\x20-\x7e]*$/.test(s) ? s : `=?UTF-8?B?${base64Lines(utf8(s)).replace(/\r\n/g, "")}?=`);
 
 /** A filename parameter that survives any characters (RFC 2231). */
 function filenameParams(name) {
@@ -256,13 +258,17 @@ function messageToEml(cfb, storage, level, depth) {
     }
     headerBlock = kept.join("\r\n");
   } else {
+    // Property values become header lines: a line break smuggled into one
+    // would add a header of the attacker's choosing (a forged
+    // Authentication-Results, say). Control characters are removed.
+    const clean = (s) => String(s).replace(/[\u0000-\u001f\u007f<>]/g, "");
     const senderName = text("0C1A") || text("0042");
-    const senderEmail = text("5D01") || text("0C1F") || text("0065");
+    const senderEmail = clean(text("5D01") || text("0C1F") || text("0065"));
     const recipients = [];
-    for (const s of storages.filter((s) => /^__recip_version1\.0_/i.test(s.name))) {
+    for (const s of storages.filter((s) => /^__recip_version1\.0_/i.test(s.name)).slice(0, 500)) {
       const r = readProperties(cfb, s, false).props;
       const name = propText(r, "3001", codepage);
-      const email = propText(r, "39FE", codepage) || propText(r, "3003", codepage);
+      const email = clean(propText(r, "39FE", codepage) || propText(r, "3003", codepage));
       if (email) recipients.push(name && name !== email ? `"${quote(name)}" <${email}>` : `<${email}>`);
     }
     const date = props["0039"]?.value || props["0E06"]?.value;
@@ -271,8 +277,8 @@ function messageToEml(cfb, storage, level, depth) {
     if (recipients.length) lines.push(`To: ${recipients.join(", ")}`);
     lines.push(`Subject: ${encodedWord(text("0037"))}`);
     if (date instanceof Date && !isNaN(date)) lines.push(`Date: ${date.toUTCString().replace("GMT", "+0000")}`);
-    const id = text("1035");
-    if (id) lines.push(`Message-ID: ${id}`);
+    const id = clean(text("1035"));
+    if (id) lines.push(`Message-ID: <${id}>`);
     lines.push("X-Converted-From: Outlook .msg without Internet headers (sent internally or never sent)");
     headerBlock = lines.join("\r\n");
   }
@@ -297,7 +303,8 @@ function messageToEml(cfb, storage, level, depth) {
     parts.push(`Content-Type: text/${html ? "html" : "plain"}; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n${base64Lines(utf8(html || plain))}`);
   }
 
-  for (const s of storages.filter((s) => /^__attach_version1\.0_/i.test(s.name))) {
+  // ponytail: 200 attachments per message; real mail never comes near it.
+  for (const s of storages.filter((s) => /^__attach_version1\.0_/i.test(s.name)).slice(0, 200)) {
     const a = readProperties(cfb, s, false);
     const at = (id) => propText(a.props, id, codepage);
     let name = at("3707") || at("3704") || at("3001") || "attachment";

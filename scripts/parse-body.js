@@ -69,10 +69,10 @@ function walkParts(part, out, isRoot) {
   const text = decodeText(part);
   if (part.mime === "text/html") {
     out.html += text;
-    out.links.push(...extractLinksFromHtml(text));
+    for (const link of extractLinksFromHtml(text)) out.links.push(link);
   } else if (part.mime.startsWith("text/")) {
     out.text += text + "\n";
-    out.links.push(...extractLinksFromText(text));
+    for (const link of extractLinksFromText(text)) out.links.push(link);
   }
 }
 

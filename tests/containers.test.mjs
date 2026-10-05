@@ -203,7 +203,7 @@ await test("legacy Office macros are found; Outlook .msg files are left alone", 
   const iocs = await analyse({ "old.doc": ole, "mail.msg": ole });
   assert.ok(risks(find(iocs, "old.doc")).includes("macros"));
   assert.ok(risks(find(iocs, "old.doc")).includes("macro-autorun"));
-  assert.equal(find(iocs, "mail.msg").containerInfo, undefined);
+  assert.ok(!risks(find(iocs, "mail.msg")).includes("macros"), "an Outlook item is converted, not judged as a macro document");
 });
 
 // ===== PDF and RTF =====

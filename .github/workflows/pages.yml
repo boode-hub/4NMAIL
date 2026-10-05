@@ -51,6 +51,8 @@ jobs:
       - run: node tests/containers.test.mjs
       - run: node tests/msg.test.mjs
       - run: node tests/qr.test.mjs
+      - run: node tests/fuzz.test.mjs
+      - run: PERF_CEILING_MS=20000 node tests/perf.bench.mjs
 
   deploy:
     needs: test

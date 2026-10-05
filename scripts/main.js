@@ -376,8 +376,10 @@ async function buildAnalysis(input) {
   const iocs = extractIOCs(headers, body);
   // Look inside archives, Office files, PDFs and RTF; what they contain is
   // checked like everything else.
-  await inspectContainers(iocs, body);
-  refreshIOCs(iocs);
+  const added = await inspectContainers(iocs, body);
+  // Re-check only when something was found inside a file: on a message with
+  // thousands of links a needless second pass costs seconds.
+  if (added.urls.length || added.children.length || iocs.attachments.some((a) => a.containerFindings?.length)) refreshIOCs(iocs);
 
   // Hash every extracted file — attachments and inline images alike — so the
   // hashes are on screen without a lookup, and a VirusTotal file check is one
@@ -432,6 +434,9 @@ async function handleAnalyze() {
 
   try {
     showStatus("Analyzing email...", "info");
+    // Let the status paint before the analysis holds the page. A timer, not
+    // requestAnimationFrame: that never fires in a background tab.
+    await new Promise((resolve) => setTimeout(resolve, 16));
     const { analysis, error } = await buildAnalysis(input);
     if (error) {
       hideResults();
