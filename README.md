@@ -654,18 +654,18 @@ node tests/imports.test.mjs      # every cross-module call is imported
 
 | File | Description | Result |
 |---|---|---|
-| `legitimate-email.eml` | Clean message, all authentication passing | Low Risk (0) |
-| `phishing-spoofed.eml` | Spoofed domain, authentication failures, misaligned domain | High Risk (68) |
-| `phishing-urgency.eml` | Urgent and financial wording, authentication passing | Low Risk (6) † |
+| `legitimate-email.eml` | Clean message, all authentication passing | Low Risk (2) |
+| `phishing-spoofed.eml` | Spoofed domain, authentication failures, misaligned domain | High Risk (80) |
+| `phishing-urgency.eml` | CEO wire-transfer request, authentication passing | Suspicious (30) † |
 
-† The message authenticates correctly, and wording alone is deliberately not enough to raise the tier. The language findings are still listed in the summary and the verdict.
+† The message authenticates correctly, so it is the wording that decides: two or more strong payment-fraud (BEC) phrases set a floor of **Suspicious** and name the attack **BEC / payment fraud**.
 
 ---
 
 ## Known limitations
 
 - **Lookups need the local server** (or a relay you run) — see [Where lookups work](#where-lookups-work).
-- **Wording alone cannot raise the risk tier.** This prevents false alarms from urgent-sounding legitimate mail, but it means a Business Email Compromise message sent from a genuine, compromised account can score **Low Risk** while its BEC phrases are listed. Always verify payment or bank-detail changes by phone using a known number.
+- **Wording raises the tier only in narrow cases** — two or more strong BEC or extortion phrases, three or more advance-fee phrases, or a QR link with pressure wording. Otherwise urgent-sounding mail from an authenticated sender stays **Low Risk** with its phrases listed, to avoid false alarms. Always verify payment or bank-detail changes by phone using a known number.
 - **Language detection is English-only.**
 - **Relaxed alignment uses a compact list of multi-part domain suffixes**, not the full Public Suffix List; unusual country suffixes may be judged by their last two labels.
 - **Attachments are read, not scanned for known malware** — structure and content are inspected, but there is no antivirus signature check; look the hash up to learn about the file. RAR, 7-Zip and AES-encrypted ZIP archives are not opened.
