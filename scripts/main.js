@@ -7,6 +7,7 @@ import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
 import { inspectContainers } from "./inspect-files.js";
+import { readEmailFile } from "./msg-parser.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity, setProtectedDomains, parseDomainList, protectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
@@ -469,9 +470,10 @@ async function analyzeBatch(files) {
   body.innerHTML = `<p class="batch-progress">Analyzing ${files.length} files…</p>`;
 
   for (const file of files) {
-    const text = await file.text();
-    let row = { name: file.name, text };
+    let row = { name: file.name, text: "" };
     try {
+      const text = await readEmailFile(file);
+      row.text = text;
       const { analysis, error } = await buildAnalysis(text);
       if (error) row.error = error;
       else
@@ -681,40 +683,21 @@ function handleFileUpload(e) {
 
   // Several files at once: score them all and show the list.
   if (chosen.length > 1) {
-    const usable = chosen.filter((f) => !f.name.toLowerCase().endsWith(".msg"));
-    if (usable.length < chosen.length) {
-      showStatus(
-        `${chosen.length - usable.length} .msg file(s) skipped — convert them to .eml first.`,
-        "info",
-      );
-    }
-    if (usable.length) analyzeBatch(usable);
+    analyzeBatch(chosen);
     return;
   }
 
   const file = chosen[0];
   document.getElementById("batch-section")?.classList.add("hidden");
 
-  if (file.name.toLowerCase().endsWith(".msg")) {
-    showStatus(
-      ".msg files are not yet supported. Please convert to .eml or paste the raw source.",
-      "error",
-    );
-    if (elements.fileUpload) elements.fileUpload.value = "";
-    return;
-  }
-
-  const reader = new FileReader();
-  reader.onload = (event) => {
-    if (elements.emailInput) {
-      elements.emailInput.value = event.target.result;
-    }
-    showStatus(`Loaded: ${file.name}`, "success");
-  };
-  reader.onerror = () => {
-    showStatus("Error reading file", "error");
-  };
-  reader.readAsText(file);
+  // .msg files are converted to the standard message format on the way in.
+  readEmailFile(file).then(
+    (text) => {
+      if (elements.emailInput) elements.emailInput.value = text;
+      showStatus(`Loaded: ${file.name}${/\.msg$/i.test(file.name) ? " (converted from Outlook .msg)" : ""}`, "success");
+    },
+    (err) => showStatus(`Error reading ${file.name}: ${err.message}`, "error"),
+  );
 }
 
 // Theme colour: live preview while picking, saved on every change.

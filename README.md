@@ -100,13 +100,15 @@ PORT=3000 node server.js
    - **Gmail:** open the message → ⋮ → **Show original** → copy it, or **Download original** for an `.eml` file.
    - **Outlook on the web:** open the message → ⋯ → **View** → **View message source**.
    - **Outlook desktop:** **File → Properties** shows the Internet headers. Headers alone are enough for the authentication and routing analysis; body, links and attachments need the full source.
-2. **Paste** it into the input box, **upload** the `.eml` / `.txt` file, or **drag and drop** files anywhere on the page.
+2. **Paste** it into the input box, **upload** the `.eml`, Outlook `.msg` or `.txt` file, or **drag and drop** files anywhere on the page.
 3. Click **Analyze Email**.
 4. Read the **Quick Summary** first, then drill into the panels below it.
 5. Optionally add **VirusTotal / AbuseIPDB API keys** in **Settings** to look indicators up in place.
 6. **Export** an HTML report and/or a CSV from the bar above the results.
 
-Text that is not an email is refused rather than given a verdict. `.msg` files are not supported yet — save or convert the message to `.eml`.
+Text that is not an email is refused rather than given a verdict.
+
+**Outlook `.msg` files** are read directly: the original Internet headers, the plain and HTML bodies (in the message's own code page), every attachment byte-for-byte, and attached Outlook items — which become attached emails with their own **Analyze this attached email** button. A `.msg` that never crossed the Internet (sent internally, or a draft) has no Internet headers; the sender, recipients, subject and date are rebuilt from the message's properties and the result is marked `X-Converted-From`. `.msg` works in batches and on the comparison page too. Bodies stored only as compressed RTF are not decoded.
 
 ---
 
@@ -559,7 +561,8 @@ Raw email
 │   ├── hash-utils.js           Byte-accurate SHA-256 and MD5
 │   ├── analyze-identity.js     Display-name and lookalike-domain analysis
 │   ├── analyze-unicode.js      Right-to-left overrides, invisible characters, mixed alphabets
-│   ├── inspect-files.js        Looking inside ZIP, Office, PDF and RTF attachments
+│   ├── inspect-files.js        Looking inside ZIP, Office, PDF, RTF and calendar attachments
+│   ├── msg-parser.js           Outlook .msg (Compound File) to RFC 822 conversion
 │   ├── file-type.js            Attachment content sniffing and HTML smuggling
 │   ├── compare-model.js        Side-by-side table and campaign correlation
 │   ├── compare.js              Compare page: drag and drop, rendering, exports
@@ -602,6 +605,7 @@ node tests/compare.test.mjs      # side-by-side table, campaign correlation, com
 node tests/html.test.mjs         # body/attachment detection, static HTML reading, verdict floors
 node tests/deception.test.mjs    # your domains, Unicode tricks, attack type
 node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF, calendar invites
+node tests/msg.test.mjs          # Outlook .msg: Compound File reading (mini and regular streams), conversion
 node tests/imports.test.mjs      # every cross-module call is imported
 ```
 
@@ -626,8 +630,9 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | theme | 3 |
 | deception | 14 |
 | containers | 14 |
+| msg | 5 |
 | imports | 1 |
-| **Total** | **385** |
+| **Total** | **390** |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 
@@ -653,7 +658,6 @@ node tests/imports.test.mjs      # every cross-module call is imported
 - **Relaxed alignment uses a compact list of multi-part domain suffixes**, not the full Public Suffix List; unusual country suffixes may be judged by their last two labels.
 - **Attachments are read, not scanned for known malware** — structure and content are inspected, but there is no antivirus signature check; look the hash up to learn about the file. RAR, 7-Zip and AES-encrypted ZIP archives are not opened.
 - **Mimecast-rewritten links cannot be unwrapped**, because Mimecast keeps the destination on its servers.
-- **`.msg` files are not supported** — convert to `.eml` or paste the source.
 
 ---
 

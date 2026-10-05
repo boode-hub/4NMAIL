@@ -10,6 +10,7 @@ import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
 import { inspectContainers } from "./inspect-files.js";
+import { readEmailFile } from "./msg-parser.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity, setProtectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
@@ -88,18 +89,12 @@ async function analyse(raw) {
 }
 
 async function addFiles(files) {
-  const usable = [...files].filter((f) => !f.name.toLowerCase().endsWith(".msg"));
-  const skipped = files.length - usable.length;
-  if (!usable.length) {
-    status(".msg files are not supported yet — convert them to .eml first.", "error");
-    return;
-  }
-
+  const usable = [...files];
   status(`Analyzing ${usable.length} message${usable.length === 1 ? "" : "s"}…`);
   let failed = 0;
   for (const file of usable) {
     try {
-      const analysis = await analyse(await file.text());
+      const analysis = await analyse(await readEmailFile(file));
       items.push({ name: file.name, analysis });
     } catch (e) {
       failed++;
@@ -110,8 +105,7 @@ async function addFiles(files) {
   render();
   const parts = [`${items.length} message${items.length === 1 ? "" : "s"} loaded`];
   if (failed) parts.push(`${failed} skipped (not an email)`);
-  if (skipped) parts.push(`${skipped} .msg skipped`);
-  status(parts.join(" · "), failed || skipped ? "info" : "success");
+  status(parts.join(" · "), failed ? "info" : "success");
 }
 
 async function addSamples() {
