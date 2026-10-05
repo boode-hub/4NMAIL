@@ -2094,7 +2094,7 @@ mark.highlight-credential {
 
 /* ===== API AVAILABILITY NOTICE ===== */
 .api-notice {
-  margin-top: 0.75rem;
+  margin: 0.75rem 0 1.25rem;
   padding: 0.625rem 0.75rem;
   border-radius: 6px;
   border-left: 3px solid #f59e0b;
@@ -2428,6 +2428,26 @@ mark.highlight-credential {
     justify-content: center;
   }
 }
+/* Phones: the main action gets its own full-width row, so no button label
+   breaks over two lines. */
+@media (max-width: 480px) {
+  .input-actions,
+  .export-actions {
+    flex-wrap: wrap;
+  }
+  .input-actions .btn,
+  .export-actions .btn {
+    flex: 1 1 auto;
+    justify-content: center;
+    white-space: nowrap;
+    padding-inline: 0.875rem;
+  }
+  #analyze-btn,
+  #export-download {
+    flex-basis: 100%;
+    order: -1;
+  }
+}
 
 /* ===== HEADERS: two views ===== */
 .headers-views {
@@ -2690,11 +2710,11 @@ mark.highlight-credential {
 }
 
 @media (max-width: 480px) {
-  /* Icon-only Settings button so the title stays on one line */
-  #settings-btn .btn-label {
+  /* Icon-only header buttons (Settings, Back) so the title stays on one line */
+  .app-header .btn .btn-label {
     display: none;
   }
-  #settings-btn {
+  .app-header .btn {
     min-width: 40px;
     justify-content: center;
     padding-left: 0.625rem;
@@ -2749,8 +2769,9 @@ mark.highlight-credential {
 }
 .lang-group-head {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 0.5rem;
   margin-bottom: 0.4rem;
 }
 .lang-group-name {
@@ -2767,6 +2788,8 @@ mark.highlight-credential {
   padding: 0 7px;
   border-radius: var(--radius-full);
   border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .lang-group-count.bad { color: var(--red); background: var(--red-bg); border-color: var(--red-border); }
 .lang-group-count.warn { color: var(--yellow); background: var(--yellow-bg); border-color: var(--yellow-border); }
@@ -2822,7 +2845,7 @@ mark.highlight-credential {
 }
 /* Half width: categories stack two-up instead of four across. */
 .summary-split .lang-groups {
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
 }
 @media (max-width: 768px) {
   .summary-split {
@@ -3245,6 +3268,9 @@ a.btn-ioc-lookup:hover {
   border-radius: var(--radius-md);
   background: var(--bg-deep);
   font-size: 12px;
+  /* The value cell breaks anywhere so hashes fit; sentences should not. */
+  word-break: normal;
+  line-height: 1.5;
 }
 .att-findings-title {
   font-size: 11px;
@@ -3524,6 +3550,7 @@ mark.highlight-bec.broad { text-decoration-color: var(--purple); }
   padding: 0.5rem 0.75rem;
   font: 12px/1.5 "JetBrains Mono", monospace;
   resize: vertical;
+  min-height: 0; /* the email box's 180px minimum is for whole messages */
 }
 #own-domains:focus {
   outline: none;

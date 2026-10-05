@@ -67,7 +67,7 @@ const FIELDS = [
   },
   {
     key: "identity",
-    label: "Identity findings",
+    label: "Deception checks",
     get: (a) => {
       const f = a.identity?.findings || [];
       return f.length ? f.map((x) => x.title).join("; ") : "None";

@@ -914,10 +914,13 @@ function attachmentExtras(item) {
   const box = item.containerInfo;
   if (box) {
     const lines = (item.containerFindings || []).map((f) => `<li class="${f.level === "high" ? "bad" : "warn"}">${esc(f.label)} — ${esc(f.message)}</li>`);
-    if (box.entries?.length) {
+    if (box.kind === "Archive" && box.entries?.length) {
+      // A file list reads best as one wrapped line; anything else gets a line per item.
       const total = box.total || box.entries.length;
       const shown = box.entries.slice(0, 20).map((e) => `<span class="mono">${esc(e)}</span>`).join(", ");
-      lines.push(`<li>${box.kind === "Archive" ? "Contents" : "Found"}: ${shown}${total > 20 ? ` and ${total - 20} more` : ""}</li>`);
+      lines.push(`<li>Contents: ${shown}${total > 20 ? ` and ${total - 20} more` : ""}</li>`);
+    } else {
+      for (const e of (box.entries || []).slice(0, 20)) lines.push(`<li>${esc(e)}</li>`);
     }
     for (const note of box.notes || []) lines.push(`<li>${esc(note)}</li>`);
     if (!lines.length) lines.push("<li>Nothing risky found inside</li>");

@@ -153,7 +153,32 @@ function parseMimePart(rawHeaders, rawBody) {
   }
 
   part.bytes = decodeToBytes(rawBody, part.encoding);
+  // An unencoded (7bit/8bit) body usually arrives as text the browser has
+  // already decoded — a pasted message, or a file read as UTF-8. Squeezing it
+  // back into one byte per character turned "—" into a control character and
+  // broke every non-Latin script, so such text is re-encoded as UTF-8.
+  if (part.encoding !== "base64" && part.encoding !== "quoted-printable" && isDecodedText(rawBody, mime, part.charset)) {
+    part.bytes = new TextEncoder().encode(rawBody);
+    part.charset = "utf-8";
+  }
   return part;
+}
+
+/**
+ * Whether a body string is already-decoded text rather than one character per
+ * byte. Anything above U+00FF settles it. Otherwise, a text part that claims
+ * UTF-8 but whose characters are not valid UTF-8 as bytes ("café" typed or
+ * pasted) is decoded text too. Binary parts keep their bytes.
+ */
+function isDecodedText(s, mime, charset) {
+  if (/[^\u0000-ÿ]/.test(s)) return true;
+  if (!mime.startsWith("text/") || !/^utf-?8$/i.test(charset) || !/[\u0080-ÿ]/.test(s)) return false;
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(latin1ToBytes(s));
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 /** Split a multipart body on its boundary and parse each piece. */
@@ -166,7 +191,9 @@ function splitMultipart(body, boundary) {
   for (let i = 1; i < chunks.length; i++) {
     const chunk = chunks[i];
     if (chunk.startsWith("--")) break;
-    const stripped = chunk.replace(/^\r?\n/, "");
+    // The line break before each boundary belongs to the boundary (RFC 2046),
+    // not to the part — kept, it added two bytes to every unencoded file.
+    const stripped = chunk.replace(/^\r?\n/, "").replace(/\r?\n$/, "");
     const { head, body: partBody } = splitHeadBody(stripped);
     parts.push(parseMimePart(head, partBody));
   }
@@ -260,7 +287,15 @@ function decodeToBytes(content, encoding) {
           bytes.push(parseInt(unfolded.substr(i + 1, 2), 16));
           i += 2;
         } else {
-          bytes.push(unfolded.charCodeAt(i) & 0xff);
+          // Quoted-printable should be ASCII, but senders do include raw
+          // characters; anything beyond one byte is kept as UTF-8.
+          const cp = unfolded.codePointAt(i);
+          if (cp > 0xff) {
+            for (const b of new TextEncoder().encode(String.fromCodePoint(cp))) bytes.push(b);
+            if (cp > 0xffff) i++;
+          } else {
+            bytes.push(cp);
+          }
         }
       }
       return new Uint8Array(bytes);

@@ -193,6 +193,31 @@ just text`));
   assert.match(body.text, /just text/);
 });
 
+// ===== text encodings =====
+
+await test("unencoded UTF-8 text survives: dashes, smart quotes, Arabic, Cyrillic, CJK, emoji, accents", () => {
+  const text = "Urgent — ’quotes’ مرحبا Привет 你好 😀 café naïve";
+  // Pasted, or read from a file as UTF-8: the browser has already decoded it.
+  const pasted = parseBody(`From: a@b.test\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${text}`);
+  assert.equal(pasted.text.trim(), text);
+  // No charset declared.
+  assert.equal(parseBody(`From: a@b.test\r\nContent-Type: text/plain\r\n\r\ncafé — naïve`).text.trim(), "café — naïve");
+  // HTML parts too.
+  assert.match(parseBody(`From: a@b.test\r\nContent-Type: text/html; charset=utf-8\r\n\r\n<p>${text}</p>`).html, /مرحبا Привет 你好 😀/);
+  // Raw characters inside quoted-printable.
+  assert.equal(parseBody("From: a@b.test\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\ncaf=C3=A9 — ok").text.trim(), "café — ok");
+});
+
+await test("byte strings and declared charsets still decode as before", () => {
+  const bytes = Buffer.from("café — 你好").toString("latin1");
+  assert.equal(parseBody(`From: a@b.test\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${bytes}`).text.trim(), "café — 你好");
+  assert.equal(parseBody("From: a@b.test\r\nContent-Type: text/plain; charset=iso-8859-1\r\n\r\ncafé").text.trim(), "café");
+  // A binary part sent unencoded keeps its exact bytes.
+  const bin = String.fromCharCode(0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0xc3);
+  const att = parseBody(`From: a@b.test\r\nContent-Type: multipart/mixed; boundary="B"\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nhi\r\n--B\r\nContent-Type: image/png\r\nContent-Disposition: attachment; filename="x.png"\r\nContent-Transfer-Encoding: binary\r\n\r\n${bin}\r\n--B--\r\n`).attachments[0];
+  assert.deepEqual([...att.bytes], [0x89, 0x50, 0x4e, 0x47, 0xff, 0x00, 0xc3]);
+});
+
 console.log(`\n${passed} passed, ${failures.length} failed`);
 for (const f of failures) console.error(`  FAIL  ${f.name}\n        ${f.message}`);
 process.exit(failures.length ? 1 : 0);

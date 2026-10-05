@@ -617,6 +617,8 @@ node tests/deception.test.mjs    # your domains, Unicode tricks, attack type
 node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF, calendar invites
 node tests/msg.test.mjs          # Outlook .msg: Compound File reading (mini and regular streams), conversion
 node tests/qr.test.mjs           # QR codes from a spec-built encoder: images, PDF images, verdict floor
+node tests/fuzz.test.mjs         # 2,000 corrupted ZIP/PDF/.msg/RTF/ICS/email inputs: no crash, hang or runaway memory
+node tests/perf.bench.mjs        # speed of the whole pipeline on deliberately huge messages
 node tests/imports.test.mjs      # every cross-module call is imported
 ```
 
@@ -628,7 +630,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | ip | 30 |
 | report | 22 |
 | links | 17 |
-| attachments | 9 |
+| attachments | 11 |
 | language | 18 |
 | thread | 13 |
 | files | 9 |
@@ -641,10 +643,11 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | theme | 3 |
 | deception | 14 |
 | containers | 14 |
-| msg | 5 |
+| msg | 8 |
 | qr | 5 |
+| fuzz | 2,000 inputs |
 | imports | 1 |
-| **Total** | **398** |
+| **Total** | **403** + fuzz |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 

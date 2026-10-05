@@ -656,7 +656,9 @@ function inspectCalendar(att, bytes, ctx) {
   const start = get("DTSTART")[0];
   if (summary) info.entries.push(`Event: ${summary}`);
   if (organizer) info.entries.push(`Organizer: ${organizer}`);
-  if (start) info.entries.push(`Starts: ${start}`);
+  // 20261007T090000Z → 2026-10-07 09:00 UTC (a local time stays as written).
+  const when = start?.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2}))?\d*(Z?)$/);
+  if (start) info.entries.push(`Starts: ${when ? `${when[1]}-${when[2]}-${when[3]}${when[4] ? ` ${when[4]}:${when[5]}` : ""}${when[6] ? " UTC" : ""}` : start}`);
   if (/REQUEST|PUBLISH/i.test(method || "")) info.notes.push("Calendars add a requested event automatically — the links appear in the calendar even if the email is never opened.");
 
   const urls = new Set();
