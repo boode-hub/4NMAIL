@@ -61,7 +61,7 @@ try {
   await test("the app is served", async () => {
     const res = await get("/");
     assert.equal(res.status, 200);
-    assert.match(await res.text(), /Phishing Email Analyzer/);
+    assert.match(await res.text(), /4NMAIL/);
   });
 
   await test("a null byte in the path is refused, and the server survives it", async () => {

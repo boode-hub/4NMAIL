@@ -1,4 +1,4 @@
-// Simple HTTP server for Phishing Email Analyzer
+// Simple HTTP server for 4NMAIL
 // Run: node server.js
 // Then open: http://localhost:8080
 //

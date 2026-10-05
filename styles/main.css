@@ -1,5 +1,5 @@
 /* ============================================
-   Phishing Email Analyzer — HackTheBox Theme
+   4NMAIL — HackTheBox Theme
    ============================================ */
 
 /* ===== DESIGN TOKENS ===== */
@@ -188,6 +188,72 @@ body {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+/* ===== WORDMARK: 4NMAIL, in the style of its sibling 4NSEC =====
+   The 4 glows in the accent colour; the rest is plain. Every so often the A
+   breaks up and comes back as an @ for a moment, and hovering the name
+   glitches the 4. */
+.wordmark {
+  font: 800 19px/1 "JetBrains Mono", monospace;
+  letter-spacing: 0.14em;
+  display: flex;
+  align-items: baseline;
+}
+.wordmark .four {
+  color: var(--accent);
+  text-shadow: 0 0 10px var(--accent-glow);
+  margin-right: 0.04em;
+}
+.wordmark .rest {
+  color: var(--text);
+}
+.glitch-a {
+  position: relative;
+  display: inline-block;
+  animation: a-glitch 7s step-end infinite;
+}
+.glitch-a::after {
+  content: attr(data-glyph);
+  position: absolute;
+  left: 0;
+  top: 0;
+  opacity: 0;
+  color: var(--accent);
+  animation: at-glitch 7s step-end infinite;
+}
+/* The @ is drawn inside the A, so the A hides by going transparent rather
+   than by opacity, which would take the @ with it. */
+@keyframes a-glitch {
+  0%, 86%, 100% { color: var(--text); transform: none; text-shadow: none; }
+  87% { color: var(--text); transform: translateX(2px) skewX(-12deg); text-shadow: -3px 0 var(--red), 3px 0 var(--blue); }
+  88% { color: transparent; transform: none; text-shadow: none; }
+  91% { color: var(--text); transform: translateX(-1px); text-shadow: 2px 0 var(--red), -2px 0 var(--blue); }
+  92% { color: transparent; transform: none; text-shadow: none; }
+  95% { color: var(--text); transform: none; text-shadow: none; }
+}
+@keyframes at-glitch {
+  0%, 86%, 100% { opacity: 0; transform: none; text-shadow: none; }
+  88% { opacity: 1; transform: translateX(-2px); text-shadow: 3px 0 var(--red), -3px 0 var(--blue), 0 0 10px var(--accent-glow); }
+  89% { transform: translateX(1px) skewX(10deg); }
+  90% { transform: none; text-shadow: 0 0 10px var(--accent-glow); }
+  91% { opacity: 0; }
+  92% { opacity: 1; transform: translateX(1px); text-shadow: -2px 0 var(--red), 2px 0 var(--blue); }
+  95% { opacity: 0; }
+}
+.app-header h1:hover .wordmark .four {
+  animation: four-glitch 0.45s steps(2, end) 1;
+}
+@keyframes four-glitch {
+  0% { text-shadow: 3px 0 var(--red), -3px 0 var(--blue); transform: translateX(-1px); }
+  50% { text-shadow: -2px 0 var(--red), 2px 0 var(--blue); transform: translateX(2px); }
+  100% { text-shadow: 0 0 10px var(--accent-glow); transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .app-header h1:hover .wordmark .four,
+  .glitch-a,
+  .glitch-a::after {
+    animation: none;
+  }
 }
 /* The logo takes the place of the old ">" prompt mark. */
 .app-logo {

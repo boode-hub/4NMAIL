@@ -1,4 +1,4 @@
-// Test Runner for Phishing Email Analyzer
+// Test Runner for 4NMAIL
 // Run with: node tests/runner.mjs
 
 import { parseHeaders } from "../scripts/parse-headers.js";
@@ -64,7 +64,7 @@ const legitEmail = loadSample("legitimate-email.eml");
 const spoofedEmail = loadSample("phishing-spoofed.eml");
 const urgencyEmail = loadSample("phishing-urgency.eml");
 
-console.log("\n=== Phishing Email Analyzer Test Suite ===\n");
+console.log("\n=== 4NMAIL Test Suite ===\n");
 
 // ==================== PARSE HEADERS TESTS ====================
 console.log("\n--- parse-headers.js ---");

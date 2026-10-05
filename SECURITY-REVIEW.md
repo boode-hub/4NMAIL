@@ -1,8 +1,8 @@
 # Security review and test report
 
-**Subject:** Phishing Email Analyzer (this repository)
+**Subject:** 4NMAIL (this repository)
 **Date:** 18 September 2026
-**Reviewed version:** commit at the time of writing, deployed to `https://boode-hub.github.io/Phishing-Analyzer/`
+**Reviewed version:** commit at the time of writing, deployed to `https://boode-hub.github.io/4NMAIL/`
 **Question asked:** does everything work, and is the platform safe to host publicly?
 
 **Answer:** yes, with four issues found and fixed during the review (listed below). The hosted copy is a static site that keeps no secrets, accepts no uploads to any server, and has no server-side code at all. The parts that could be attacked are the parsing of hostile email and the local helper server; both were probed directly.

@@ -1,10 +1,10 @@
-# Phishing Email Analyzer
+# 4NMAIL
 
 A browser-based analyzer for suspicious emails. Paste the raw message or upload an `.eml` file, and it checks the sender's authentication, traces the route the message took, extracts and decodes every indicator of compromise, reads the wording for fraud patterns, and gives a scored verdict with the reasons behind it — then exports a defanged report.
 
 All analysis runs locally in your browser. Nothing is uploaded; the only data that ever leaves your machine is an indicator you explicitly send to VirusTotal or AbuseIPDB with your own API key.
 
-**Live: https://boode-hub.github.io/Phishing-Analyzer/**
+**Live: https://boode-hub.github.io/4NMAIL/**
 
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 ![Status](https://img.shields.io/badge/status-active-green.svg)
@@ -73,15 +73,15 @@ All analysis runs locally in your browser. Nothing is uploaded; the only data th
 
 ### Use it online
 
-Open **https://boode-hub.github.io/Phishing-Analyzer/** — no install. Everything works there except the VirusTotal/AbuseIPDB lookups (see [why](#where-lookups-work)).
+Open **https://boode-hub.github.io/4NMAIL/** — no install. Everything works there except the VirusTotal/AbuseIPDB lookups (see [why](#where-lookups-work)).
 
 ### Run it locally
 
 Requires [Node.js](https://nodejs.org/). There are no dependencies to install and no build step (the one third-party library, jsQR, is already in `vendor/`).
 
 ```bash
-git clone https://github.com/boode-hub/Phishing-Analyzer.git
-cd Phishing-Analyzer
+git clone https://github.com/boode-hub/4NMAIL.git
+cd 4NMAIL
 node server.js
 ```
 

@@ -575,14 +575,14 @@ export function buildHtmlReport(analysis, { lookups = new Map(), local = new Map
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
-<meta name="generator" content="Phishing Email Analyzer">
+<meta name="generator" content="4NMAIL">
 <title>${esc(title)}</title>
 <style>${REPORT_CSS}</style>
 </head>
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand">${LOGO}<div><div class="brand-name">Phishing Email Analyzer</div><div class="brand-sub">IOC report</div></div></div>
+    <div class="brand">${LOGO}<div><div class="brand-name">4NMAIL</div><div class="brand-sub">IOC report</div></div></div>
     <div class="generated"><span class="eyebrow">Generated</span>${esc(formatTimestamp(now))}</div>
   </header>
   ${hero}
@@ -596,7 +596,7 @@ export function buildHtmlReport(analysis, { lookups = new Map(), local = new Map
   ${authentication}
   ${senderPath}
   ${indicators}
-  <footer class="foot">Generated locally by Phishing Email Analyzer — no data left the analyst's browser. This file loads nothing and runs no scripts.</footer>
+  <footer class="foot">Generated locally by 4NMAIL — no data left the analyst's browser. This file loads nothing and runs no scripts.</footer>
 </div>
 </body>
 </html>
@@ -880,7 +880,7 @@ export function buildJsonReport(analysis, { lookups = new Map(), local = new Map
 
   return JSON.stringify(
     {
-      tool: "Phishing Email Analyzer",
+      tool: "4NMAIL",
       generated: now.toISOString(),
       verdict: {
         tier: score.tier || "Unknown",
@@ -1048,10 +1048,10 @@ export async function buildStixBundle(analysis, { now = new Date() } = {}) {
   const identity = {
     type: "identity",
     spec_version: "2.1",
-    id: `identity--${await uuid5(STIX_NAMESPACE, "Phishing Email Analyzer")}`,
+    id: `identity--${await uuid5(STIX_NAMESPACE, "4NMAIL")}`,
     created: "2024-01-01T00:00:00.000Z",
     modified: "2024-01-01T00:00:00.000Z",
-    name: "Phishing Email Analyzer",
+    name: "4NMAIL",
     identity_class: "system",
   };
   const objects = [identity];
@@ -1194,8 +1194,8 @@ export function buildMispEvent(analysis, { now = new Date() } = {}) {
         published: false,
         Tag: [
           { name: "phishing" },
-          { name: `phishing-analyzer:verdict="${score.tier || "Unknown"}"` },
-          ...(score.attackTypes || []).map((t) => ({ name: `phishing-analyzer:attack-type="${t}"` })),
+          { name: `4nmail:verdict="${score.tier || "Unknown"}"` },
+          ...(score.attackTypes || []).map((t) => ({ name: `4nmail:attack-type="${t}"` })),
         ],
         Attribute: attributes,
       },

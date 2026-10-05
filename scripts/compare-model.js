@@ -343,7 +343,7 @@ export function comparisonJson(items, now = new Date()) {
   const { rows, shared } = buildComparison(items);
   return JSON.stringify(
     {
-      tool: "Phishing Email Analyzer — comparison",
+      tool: "4NMAIL — comparison",
       generated: now.toISOString(),
       messages: items.map((item, index) => ({
         name: item.name,

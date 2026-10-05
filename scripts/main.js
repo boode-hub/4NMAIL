@@ -1,5 +1,5 @@
 // Main Application Entry Point
-// Phishing Email Analyzer - Local Browser-Based
+// 4NMAIL - Local Browser-Based
 
 import "./lightning.js";
 import { parseHeaders } from "./parse-headers.js";
@@ -212,7 +212,7 @@ function queryElements() {
 // Initialize
 function init() {
   console.log("%cBOoDe", "color:#9fef00;font:700 14px monospace");
-  console.log("[Phishing Analyzer] Initializing...");
+  console.log("[4NMAIL] Initializing...");
 
   // Query DOM elements now that DOM is ready
   queryElements();
@@ -304,7 +304,7 @@ function init() {
   }
   syncExportControls();
 
-  console.log("[Phishing Analyzer] Initialized successfully");
+  console.log("[4NMAIL] Initialized successfully");
 }
 
 /**
@@ -457,7 +457,7 @@ async function handleAnalyze() {
     await renderResults(currentAnalysis);
     showStatus("Analysis complete!", "success");
   } catch (error) {
-    console.error("[Phishing Analyzer] Analysis error:", error);
+    console.error("[4NMAIL] Analysis error:", error);
     hideResults();
     showStatus("Error analyzing email: " + error.message, "error");
   }

@@ -1,4 +1,4 @@
-// Cloudflare Worker - CORS Proxy for Phishing Email Analyzer
+// Cloudflare Worker - CORS Proxy for 4NMAIL
 // Deploy this to Cloudflare Workers (free tier) to enable API calls from GitHub Pages
 //
 // Setup:
@@ -7,7 +7,7 @@
 // 3. Paste this code
 // 4. Save and deploy
 // 5. Copy the worker URL (e.g., https://your-worker.your-subdomain.workers.dev)
-// 6. In the Phishing Analyzer app settings, paste the worker URL in the "CORS Proxy URL" field
+// 6. In the 4NMAIL app settings, paste the worker URL in the "CORS Proxy URL" field
 //
 // This worker forwards all headers (including API keys) to the target API,
 // but ONLY to the two reputation services below. Without that allow-list it is
