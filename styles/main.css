@@ -572,7 +572,9 @@ input[type="file"]::file-selector-button:hover {
 }
 .summary-bottom-row {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  /* Sender, Reply-To, Recipient, Message: four across when they fit, two by
+     two on narrower screens. */
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 1rem;
 }
 
@@ -2319,6 +2321,56 @@ mark.highlight-credential {
   border-radius: 6px;
   background: var(--bg-deep, #0a0a0a);
 }
+/* What the URL is encoded with, explained before any button is pressed. */
+.decode-info {
+  margin-bottom: 0.625rem;
+  padding: 0.5rem 0.625rem;
+  border: 1px solid var(--yellow-border);
+  border-left: 3px solid var(--yellow);
+  border-radius: 6px;
+  background: var(--yellow-bg);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.decode-info.plain {
+  border-color: var(--border);
+  border-left-color: var(--text-muted);
+  background: transparent;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+.decode-info-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--yellow);
+  margin-bottom: 0.25rem;
+}
+.decode-info ul {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+.decode-info li + li {
+  margin-top: 0.25rem;
+}
+.decode-info-name {
+  font-weight: 600;
+  color: var(--text);
+}
+.decode-info-found {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 11px;
+  color: var(--yellow);
+}
 .decode-buttons {
   display: flex;
   flex-wrap: wrap;
@@ -3390,6 +3442,119 @@ a.btn-ioc-lookup:hover {
 }
 .att-open {
   margin-top: 0.5rem;
+}
+a.att-open {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+a.att-open:hover {
+  background: var(--accent-bg);
+}
+
+/* ===== FILE DETAILS (renderFileDetails) ===== */
+.att-details {
+  margin-top: 0.5rem;
+}
+.att-details > summary {
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--accent);
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  word-break: normal;
+}
+.att-details-body {
+  margin-top: 0.4rem;
+  padding: 0.625rem;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-deep);
+  font-size: 12px;
+  /* The value cell breaks anywhere so hashes fit; sentences should not. */
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.file-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.25rem 0.875rem;
+  margin: 0 0 0.75rem;
+}
+.file-facts dt {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-top: 1px;
+}
+.file-facts dd {
+  margin: 0;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+.file-facts dd.good { color: var(--green); }
+.file-facts dd.bad,
+.att-details-body .bad { color: var(--red); }
+.file-facts dd.warn { color: var(--yellow); }
+.att-hex-title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin: 0.5rem 0 0.25rem;
+}
+.att-hex-title .muted {
+  text-transform: none;
+  letter-spacing: 0;
+}
+.att-hex {
+  margin: 0;
+  padding: 0.5rem;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+.att-strings-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.5rem;
+  margin-bottom: 0.35rem;
+}
+.att-strings-title {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 7.5rem;
+}
+.att-strings-group .mono {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+.att-strings-none {
+  margin: 0;
+  font-size: 12px;
+}
+@media (max-width: 480px) {
+  .file-facts {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .file-facts dd {
+    margin-bottom: 0.4rem;
+  }
 }
 @media (max-width: 768px) {
   .preview-frame-wrap {

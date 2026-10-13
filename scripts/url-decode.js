@@ -460,6 +460,39 @@ export const URL_DECODERS = [
 ];
 
 /** Labels of the specific decoders that find something in this URL. */
+/** What each encoding is, in a sentence an analyst can act on. */
+const ENCODING_INFO = {
+  unwrap: ["Wrapped link", "A mail-security gateway (Safe Links, Proofpoint, Mimecast…) or a redirector carries the real destination inside this URL."],
+  percent: ["URL encoding (%XX)", "Characters written as % and two hex digits (%2F is \"/\"). Normal in URLs, but also used to hide a destination or a keyword from filters."],
+  base64: ["Base64", "Text or data encoded with A–Z, a–z, 0–9, + and /. In phishing links it usually hides the victim's email address, a second URL or tracking data."],
+  punycode: ["Punycode (IDN)", "An international domain name written as xn--… It can display as a lookalike of a real brand using letters from another alphabet."],
+  html: ["HTML entities", "Characters written as &amp;… or &#47;… — harmless in a page, but inside a link they disguise what it says."],
+  hex: ["Hex", "Bytes written as pairs of hexadecimal digits (68 74 74 70 = \"http\"), a simple way to keep a payload unreadable."],
+  escape: ["JavaScript escapes", "\\u0041 / \\x41 sequences — script-style encoding, unusual in a real link."],
+};
+
+/**
+ * The encodings found in a URL, each with a plain explanation and what it
+ * hides — for the info box at the top of the decoder.
+ * @returns {Array<{id: string, name: string, what: string, found: string|null}>}
+ */
+export function describeEncodings(url) {
+  return detectEncodings(url).map((id) => {
+    const r = safeRun(URL_DECODERS.find((d) => d.id === id).run, url);
+    // The first decoded item says more than a count: "dGVzdEB… → test@corp.com".
+    const firstLine = (r?.output || "").split("\n")[0];
+    const count = (url.match(/%[0-9a-f]{2}/gi) || []).length;
+    const found =
+      id === "base64" || id === "hex"
+        ? `${firstLine.length > 160 ? `${firstLine.slice(0, 160)}…` : firstLine}${r?.note ? ` — ${r.note}` : ""}`
+        : id === "percent" && !r?.note
+          ? `${count} encoded character${count === 1 ? "" : "s"}`
+          : r?.note || null;
+    const [name, what] = ENCODING_INFO[id] || [id, ""];
+    return { id, name, what, found };
+  });
+}
+
 export function detectEncodings(url) {
   return URL_DECODERS.filter((d) => d.id !== "all" && safeRun(d.run, url)).map(
     (d) => d.id,

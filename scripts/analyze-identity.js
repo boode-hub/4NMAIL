@@ -12,6 +12,13 @@
 
 import { orgDomain } from "./parse-auth.js";
 
+/** Personal webmail: anyone can open an account there, so it proves nothing. */
+const FREE_MAIL = new Set([
+  "gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "aol.com",
+  "protonmail.com", "proton.me", "gmx.com", "mail.com", "yandex.com",
+  "zoho.com", "icloud.com", "live.com", "msn.com",
+]);
+
 /** Brands phishing impersonates most, with the domains they really send from. */
 export const BRANDS = [
   ["paypal", ["paypal.com"]],
@@ -325,11 +332,6 @@ export function analyzeIdentity(headers) {
   //    covered by the alignment panel; here we only note a free-mail Reply-To
   //    on a corporate-looking sender, which is the BEC pattern.
   const replyDomain = domainOf(headers?.replyTo?.email);
-  const FREE_MAIL = new Set([
-    "gmail.com", "outlook.com", "hotmail.com", "yahoo.com", "aol.com",
-    "protonmail.com", "proton.me", "gmx.com", "mail.com", "yandex.com",
-    "zoho.com", "icloud.com",
-  ]);
   if (replyDomain && fromOrg && orgDomain(replyDomain) !== fromOrg && FREE_MAIL.has(orgDomain(replyDomain))) {
     add(
       "replyto-freemail",
@@ -339,5 +341,69 @@ export function analyzeIdentity(headers) {
     );
   }
 
+  // 6. A sending domain one step from the recipient's own — caught even when
+  //    "your domains" is not configured, because the recipient names it.
+  if (!findings.some((f) => f.id.startsWith("own-lookalike"))) {
+    const imitation = recipientSummary(headers).notes.find((n) => n.level === "high");
+    if (imitation) {
+      add(
+        "recipient-lookalike",
+        "high",
+        "The sending domain imitates the recipient's own domain",
+        `${imitation.text} — the usual way to pose as a colleague or the company itself.`,
+      );
+    }
+  }
+
   return { findings, fromDomain, displayName };
+}
+
+/**
+ * Who the message went to, for the summary: the To and Cc lists, the mailbox
+ * it actually landed in, and what about them deserves a second look — no
+ * visible recipient (everyone was Bcc'd, the shape of a mass mailing), a long
+ * recipient list, or a sending domain that imitates the recipient's own.
+ *
+ * @returns {{to: string[], cc: string[], deliveredTo: string|null,
+ *   domains: string[], notes: Array<{text: string, level: "high"|"medium"|"ok"}>}}
+ */
+export function recipientSummary(headers) {
+  const r = headers?.recipients || {};
+  const to = (r.to || []).map((a) => a.email);
+  const cc = (r.cc || []).map((a) => a.email);
+  const deliveredTo = r.deliveredTo || null;
+  const all = [...to, ...cc];
+  const domains = [...new Set([...all, deliveredTo].filter(Boolean).map(domainOf))];
+  const notes = [];
+
+  if (!to.length) {
+    notes.push({
+      text: /undisclosed/i.test(r.toHeader || "") ? "Undisclosed recipients — everyone was Bcc'd" : "No visible recipient — sent as Bcc",
+      level: "medium",
+    });
+  }
+  if (all.length >= 10) notes.push({ text: `Sent to ${all.length} recipients at once`, level: "medium" });
+  if (deliveredTo && all.length && !all.includes(deliveredTo)) {
+    notes.push({ text: `Delivered to ${deliveredTo}, which is not in To or Cc`, level: "medium" });
+  }
+
+  // A sending domain one step away from the recipient's — the same name on
+  // another ending, or one character changed — is the classic way to pose as
+  // a colleague. Works without configuring "your domains".
+  const senderOrg = orgDomain(domainOf(headers?.from?.email));
+  const base = (d) => d.split(".")[0];
+  for (const domain of domains) {
+    const recipientOrg = orgDomain(domain);
+    if (!senderOrg || !recipientOrg || senderOrg === recipientOrg || FREE_MAIL.has(recipientOrg) || FREE_MAIL.has(senderOrg)) continue;
+    const a = base(senderOrg);
+    const b = base(recipientOrg);
+    if (a === b || (b.length >= 5 && levenshtein(a, b) <= 1)) {
+      notes.push({ text: `The sending domain ${senderOrg} imitates the recipient's ${recipientOrg}`, level: "high" });
+      break;
+    }
+  }
+  if (senderOrg && domains.some((d) => orgDomain(d) === senderOrg) && !FREE_MAIL.has(senderOrg)) {
+    notes.push({ text: "Same organisation as the sender", level: "ok" });
+  }
+  return { to, cc, deliveredTo, domains, notes };
 }

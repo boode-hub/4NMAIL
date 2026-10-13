@@ -126,6 +126,7 @@ The first panel answers "is this phishing?" and shows the evidence at a glance.
 | **IOCs found** | Counts of URLs, domains, IPs, emails and files, highlighted when any is high-risk |
 | **Sender** | From address and domain, and whether DMARC verifies it — shown as **Not verified — fails DMARC** for a spoofed sender |
 | **Reply-To** | The real Reply-To header, if any, and whether replies go to a different domain |
+| **Recipient** | Every To address and its domain, the Cc count, and the mailbox it was actually delivered to (Delivered-To). Flags undisclosed or missing recipients (everyone Bcc'd), long recipient lists, and a sending domain that imitates the recipient's own — `c0ntoso.com` writing to `contoso.com` — which also counts in the verdict as impersonation, with no setup needed |
 | **Message** | Decoded subject, date and mailer |
 | **Sender IP** | The sender's public originating IP and the last relay, each with Copy, VirusTotal and AbuseIPDB buttons |
 | **Language** | Every suspicious phrase found, grouped by category and colour-coded by severity |
@@ -216,7 +217,7 @@ Alignment follows DMARC and is spelled out as a comparison, for example:
 
 ### URL decoders
 
-Every URL has a **Decode URL** section. It is highlighted with the encodings it detected, and each decoder runs with one click:
+Every URL has a **Decode URL** section. It is highlighted with the encodings it detected, and opening it first explains what the URL is encoded with — each encoding named, what it is and why attackers use it, and what it hides (for example the Base64 that decodes to the victim's address). Each decoder then runs with one click:
 
 | Decoder | What it does |
 |---|---|
@@ -235,6 +236,15 @@ Every URL has a **Decode URL** section. It is highlighted with the encodings it 
 - **Inline images and embedded files are collected too**, not only parts marked as attachments.
 - **SHA-256 and MD5** are shown for each file, with its type, size and whether it is inline.
 - The VirusTotal button on a file looks up its hash.
+
+**File details.** Every file has a **File details** panel, worked out from its bytes when opened:
+
+- the type the email declared and the type the content really is, and whether the name's extension matches it;
+- the exact size and the entropy (near 8 means compressed, encrypted or packed);
+- for Windows programs, the architecture, whether it is a DLL, and the build time — a date in the future or before 1995 is flagged as tampered;
+- SHA-1 alongside SHA-256 and MD5;
+- a hex and ASCII dump of the first bytes;
+- the URLs, email addresses and IP addresses written inside the file.
 
 **Saving files.** Every file the analyzer extracted — attachments, inline images, forwarded emails, and files recovered from inside HTML attachments — has two download buttons:
 
@@ -268,7 +278,7 @@ Running the attachment to watch it was considered and rejected: a browser sandbo
 
 Decompression uses the browser's built-in decompressor, with size limits on every file and on the total, so a ZIP bomb cannot exhaust memory.
 
-**Emails forwarded as an attachment.** A suspicious message forwarded to you "as attachment" arrives as a `.eml` inside the forwarder's mail — whose headers say nothing about the attacker. An **Analyze this attached email** button loads the original straight into the analyzer.
+**Emails forwarded as an attachment.** A suspicious message forwarded to you "as attachment" arrives as a `.eml` inside the forwarder's mail — whose headers say nothing about the attacker. **Analyze this attached email** opens it in a **new tab**, so the analysis it came from stays open and you can go back and forth. The new tab gets the message from the original tab inside the browser; nothing is uploaded.
 
 ### Language analysis
 
@@ -620,6 +630,7 @@ node tests/deception.test.mjs    # your domains, Unicode tricks, attack type
 node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF, calendar invites
 node tests/msg.test.mjs          # Outlook .msg: Compound File reading (mini and regular streams), conversion
 node tests/qr.test.mjs           # QR codes from a spec-built encoder: images, PDF images, verdict floor
+node tests/details.test.mjs      # recipients, URL encoding explanations, file details
 node tests/fuzz.test.mjs         # 2,000 corrupted ZIP/PDF/.msg/RTF/ICS/email inputs: no crash, hang or runaway memory
 node tests/perf.bench.mjs        # speed of the whole pipeline on deliberately huge messages
 node tests/imports.test.mjs      # every cross-module call is imported
@@ -648,9 +659,10 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | containers | 14 |
 | msg | 8 |
 | qr | 5 |
+| details | 8 |
 | fuzz | 2,000 inputs |
 | imports | 1 |
-| **Total** | **403** + fuzz |
+| **Total** | **411** + fuzz |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 

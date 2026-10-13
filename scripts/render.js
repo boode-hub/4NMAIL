@@ -1,8 +1,10 @@
 import { isValidIP, isRoutableIP, findIPs } from "./ip-utils.js";
-import { URL_DECODERS, detectEncodings, safeRun } from "./url-decode.js";
+import { URL_DECODERS, detectEncodings, describeEncodings, safeRun } from "./url-decode.js";
 import { buildPreview, textAsPreview, describePreview } from "./preview.js";
 import { looksLikeHtml } from "./html-inspect.js";
 import { revealControls } from "./analyze-unicode.js";
+import { recipientSummary } from "./analyze-identity.js";
+import { describeFile } from "./file-type.js";
 import { MAX_HIGHLIGHTS } from "./analyze-language.js";
 
 // Rows rendered per IOC table before the rest are collapsed behind a button.
@@ -145,6 +147,27 @@ export async function renderSummary(container, analysis, apiKeys) {
         ]
       : [{ l: "Address", v: "None — replies go to From" }],
     dm ? "medium" : "neutral",
+  );
+
+  // Who it was sent to, mirroring the Sender card.
+  const rcpt = recipientSummary(h);
+  const more = (list) => (list.length > 1 ? ` +${list.length - 1} more` : "");
+  const worst = rcpt.notes.some((n) => n.level === "high") ? "high" : rcpt.notes.some((n) => n.level === "medium") ? "medium" : "neutral";
+  html += mkCard(
+    "Recipient",
+    "inbox",
+    [
+      rcpt.to.length
+        ? { l: "To", v: trunc(rcpt.to[0], 34) + more(rcpt.to), t: rcpt.to.join(", "), m: 1 }
+        : { l: "To", v: "None visible", c: "suspicious" },
+      ...(rcpt.domains.length
+        ? [{ l: rcpt.domains.length > 1 ? "Domains" : "Domain", v: rcpt.domains[0] + more(rcpt.domains), t: rcpt.domains.join(", "), m: 1 }]
+        : []),
+      ...(rcpt.cc.length ? [{ l: "Cc", v: `${rcpt.cc.length} address${rcpt.cc.length === 1 ? "" : "es"}`, t: rcpt.cc.join(", ") }] : []),
+      ...(rcpt.deliveredTo && !rcpt.to.includes(rcpt.deliveredTo) ? [{ l: "Delivered to", v: trunc(rcpt.deliveredTo, 34), t: rcpt.deliveredTo, m: 1 }] : []),
+      ...rcpt.notes.map((n) => ({ l: "Note", v: n.text, c: n.level === "high" ? "malicious" : n.level === "medium" ? "suspicious" : "verified" })),
+    ],
+    worst,
   );
 
   html += mkCard(
@@ -376,6 +399,7 @@ const ICONS = {
   shield: `<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>`,
   link: `<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>`,
   file: `<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>`,
+  inbox: `<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>`,
   clip: `<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>`,
 };
 
@@ -724,18 +748,30 @@ export function renderIOCs(container, iocs, apiKeys) {
  * something in this URL are highlighted; the rest stay clickable so the
  * analyst can confirm there is nothing there. Wired to window in main.js.
  */
+const INFO_ICON = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+
 export function renderDecoders(details) {
   if (!details.open) return;
   const body = details.querySelector(".decode-body");
   if (!body || body.dataset.ready) return;
   body.dataset.ready = "1";
 
-  const found = detectEncodings(details.dataset.url);
+  const encodings = describeEncodings(details.dataset.url);
+  const found = encodings.map((e) => e.id);
   const buttons = URL_DECODERS.map(
     (d) =>
       `<button type="button" class="decode-btn${d.id === "all" || found.includes(d.id) ? " applies" : ""}" data-act="decode" data-decoder="${d.id}">${esc(d.label)}</button>`,
   ).join("");
-  body.innerHTML = `<div class="decode-buttons">${buttons}</div><div class="decode-result" hidden></div>`;
+  // What the analyst is dealing with, before any button is pressed.
+  const info = encodings.length
+    ? `<div class="decode-info"><div class="decode-info-title">${INFO_ICON}Encoding in this URL</div><ul>${encodings
+        .map(
+          (e) =>
+            `<li><span class="decode-info-name">${esc(e.name)}</span> — ${esc(e.what)}${e.found ? `<span class="decode-info-found mono">${esc(e.found)}</span>` : ""}</li>`,
+        )
+        .join("")}</ul></div>`
+    : `<div class="decode-info plain">${INFO_ICON}No encoding found — this URL is plain text.</div>`;
+  body.innerHTML = `${info}<div class="decode-buttons">${buttons}</div><div class="decode-result" hidden></div>`;
 }
 
 /** Run one decoder against the panel's URL and show the result. */
@@ -813,7 +849,7 @@ function renderIOCSection(id, title, items, type, apiKeys, showAll) {
               item.sha256
                 ? `<div class="hash-line"><span class="hash-label">SHA-256</span><span class="mono hash-val">${esc(item.sha256)}</span></div><div class="hash-line"><span class="hash-label">MD5</span><span class="mono hash-val">${esc(item.md5 || "")}</span></div>`
                 : '<div class="hash-line"><span class="hash-label muted">no decodable content</span></div>'
-            }<div class="att-meta">${esc(item.contentType || "unknown type")} · ${formatSize(item.size)}${item.inline ? " · inline" : ""}${item.embeddedIn ? ` · inside ${esc(item.embeddedIn)}` : ""}</div>${attachmentExtras(item)}</div>`
+            }<div class="att-meta">${esc(item.contentType || "unknown type")} · ${formatSize(item.size)}${item.inline ? " · inline" : ""}${item.embeddedIn ? ` · inside ${esc(item.embeddedIn)}` : ""}</div>${fileDetailsPanel(item)}${attachmentExtras(item)}</div>`
           : "";
 
       const vtBtn = lookupUseless
@@ -893,6 +929,77 @@ function renderIOCSection(id, title, items, type, apiKeys, showAll) {
   return `<div class="ioc-section" id="${id}"><h3>${esc(title)} (${items.length})</h3><div class="table-scroll"><table class="ioc-table"><thead><tr><th>Value</th><th>Risk</th><th>Actions</th></tr></thead><tbody>${rows}</tbody></table></div>${more}</div>`;
 }
 
+/**
+ * "Analyze this attached email" opens the message in a new tab, so the one
+ * it came from stays open. The new tab asks this one for the bytes (main.js).
+ */
+function openEmailLink(key, label) {
+  return `<a class="btn-sm att-open" href="?open=${encodeURIComponent(key)}" target="_blank" rel="noopener" title="Opens in a new tab — this analysis stays open here">${esc(label)} ↗</a>`;
+}
+
+// Files by hash, so a details panel can find its bytes when it is opened.
+const fileItems = new Map();
+
+/** A collapsed "File details" panel; filled in by renderFileDetails when opened. */
+function fileDetailsPanel(item) {
+  if (!item.sha256 || !item.bytes?.length) return "";
+  fileItems.set(item.sha256, item);
+  return `<details class="att-details" data-sha="${esc(item.sha256)}"><summary>File details</summary><div class="att-details-body"></div></details>`;
+}
+
+/**
+ * Fill a file's details panel: what it really is, whether the name agrees,
+ * how random it is, a program's build facts, its first bytes, and the
+ * addresses written inside it. Read from the bytes; nothing is run.
+ */
+export async function renderFileDetails(details) {
+  const body = details.querySelector(".att-details-body");
+  const item = fileItems.get(details.dataset.sha);
+  if (!body || !item || details.dataset.ready) return;
+  details.dataset.ready = "1";
+
+  const name = item.realName || item.value || "";
+  const d = describeFile(item.bytes, name, item.contentType);
+  const sha1 = [...new Uint8Array(await crypto.subtle.digest("SHA-1", item.bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+  const row = (label, value, cls = "") => `<dt>${esc(label)}</dt><dd class="${cls}">${value}</dd>`;
+  const facts = [
+    row("Name", `<span class="mono">${esc(revealControls(item.value || ""))}</span>${item.realName ? ` <span class="bad">really ${esc(item.realName)}</span>` : ""}`),
+    row("Declared type", esc(d.declaredType || "none")),
+    row("Real type", esc(d.detected || "not recognised")),
+    row("Name check", esc(d.nameCheck.text), d.nameCheck.ok === false ? "bad" : d.nameCheck.ok ? "good" : ""),
+    row("Size", `${d.size.toLocaleString()} bytes (${formatSize(d.size)})`),
+    row("Entropy", `${d.entropy.toFixed(2)} / 8 — ${esc(d.entropyNote)}`, d.entropy >= 7.5 && !/zip|image|pdf|office|archive/i.test(d.detected || "") ? "warn" : ""),
+    ...(d.pe
+      ? [
+          row("Program", `${esc(d.pe.kind)}, ${esc(d.pe.arch)}`, "bad"),
+          row("Built", d.pe.built ? `${esc(d.pe.built.toISOString().replace("T", " ").slice(0, 19))} UTC` : "no timestamp", d.pe.built && (d.pe.built > new Date() || d.pe.built.getUTCFullYear() < 1995) ? "warn" : ""),
+        ]
+      : []),
+    row("SHA-1", `<span class="mono">${sha1}</span>`),
+    ...(item.contentId ? [row("Content-ID", `<span class="mono">${esc(item.contentId)}</span>`)] : []),
+    row("Found", esc(item.source || "Attachment")),
+  ].join("");
+
+  // Hex and ASCII side by side, 16 bytes a line — what the analyst would run xxd for.
+  const lines = [];
+  for (let i = 0; i < d.head.length; i += 16) {
+    const chunk = [...d.head.subarray(i, i + 16)];
+    const hex = chunk.map((b) => b.toString(16).padStart(2, "0")).join(" ").padEnd(47);
+    const ascii = chunk.map((b) => (b >= 0x20 && b < 0x7f ? String.fromCharCode(b) : ".")).join("");
+    lines.push(`${i.toString(16).padStart(8, "0")}  ${hex}  ${ascii}`);
+  }
+
+  const list = (title, values) =>
+    values.length ? `<div class="att-strings-group"><span class="att-strings-title">${esc(title)}</span>${values.map((v) => `<span class="mono">${esc(v)}</span>`).join("")}</div>` : "";
+  const found = list("URLs", d.urls) + list("Email addresses", d.emails) + list("IP addresses", d.ips);
+
+  body.innerHTML = `<dl class="file-facts">${facts}</dl>
+    <div class="att-hex-title">First bytes</div><pre class="att-hex mono">${esc(lines.join("\n"))}</pre>
+    <div class="att-hex-title">Inside the file <span class="muted">(${d.stringCount.toLocaleString()} readable string${d.stringCount === 1 ? "" : "s"})</span></div>
+    ${found || '<p class="muted att-strings-none">No URLs, email addresses or IP addresses in its readable text.</p>'}`;
+}
+
 /** Static findings, a sandboxed preview, or "analyze this email" for one file. */
 function attachmentExtras(item) {
   const parts = [];
@@ -927,7 +1034,7 @@ function attachmentExtras(item) {
     parts.push(`<div class="att-findings"><div class="att-findings-title">${esc(box.kind)} — looked inside without opening it:</div><ul>${lines.join("")}</ul></div>`);
   }
   if (/message\/rfc822/i.test(item.contentType || "") || /\.eml$/i.test(item.value || "")) {
-    parts.push(`<button class="btn-sm att-open" type="button" data-act="open-eml" data-name="${esc(item.value)}">Analyze this attached email</button>`);
+    parts.push(openEmailLink(item.sha256 ? `sha:${item.sha256}` : `name:${item.value}`, "Analyze this attached email"));
   }
   return parts.join("");
 }
@@ -1009,7 +1116,7 @@ export function renderBody(container, body, languageAnalysis, thread) {
   }
   const forwardNote = forwarded.length
     ? `<div class="preview-forward">This message carries ${forwarded.length === 1 ? "another email" : `${forwarded.length} emails`} as an attachment — often the real suspicious message, forwarded to you. ${forwarded
-        .map((a) => `<button class="btn-sm" type="button" data-act="open-eml" data-name="${esc(a.filename)}">Analyze ${esc(a.filename)}</button>`)
+        .map((a) => openEmailLink(`name:${a.filename}`, `Analyze ${a.filename}`))
         .join(" ")}</div>`
     : "";
   const stats = preview ? describePreview(preview.stats) : "";

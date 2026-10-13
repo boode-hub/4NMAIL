@@ -40,6 +40,7 @@ import {
   renderSummary,
   showAllIOCs,
   renderDecoders,
+  renderFileDetails,
   runDecoder,
 } from "./render.js";
 
@@ -305,6 +306,8 @@ function init() {
   syncExportControls();
 
   console.log("[4NMAIL] Initialized successfully");
+  // Opened by "Analyze this attached email" in another tab.
+  openHandedOffEmail();
 }
 
 /**
@@ -1156,17 +1159,54 @@ function saveDecoded(raw) {
  * forwarder's email. The forwarder's headers say nothing about the attacker;
  * the attached message is the one to analyze.
  */
-function openAttachedEmail(btn) {
-  const bytes = attachmentContentMap.get(btn.dataset.name);
-  if (!bytes || !elements.emailInput) {
-    showStatus("That attached email carried no readable content.", "error");
+//
+// It opens in a new tab (?open=<key>), so the analysis it came from stays
+// open. The new tab asks for the message over a same-origin BroadcastChannel
+// and whichever tab holds it answers — the bytes never leave the browser.
+const handoff = typeof BroadcastChannel === "function" ? new BroadcastChannel("4nmail-handoff") : null;
+
+handoff?.addEventListener("message", (e) => {
+  const { type, key, nonce } = e.data || {};
+  if (type !== "request" || typeof key !== "string") return;
+  const at = key.indexOf(":");
+  const kind = key.slice(0, at);
+  const value = key.slice(at + 1);
+  const file = kind === "sha" ? filesBySha.get(value) : { name: value, bytes: attachmentContentMap.get(value) };
+  if (!file?.bytes?.length) return;
+  handoff.postMessage({ type: "email", nonce, name: file.name, text: new TextDecoder("utf-8", { fatal: false }).decode(file.bytes) });
+});
+
+/** In a tab opened by "Analyze this attached email": fetch the message and analyze it. */
+async function openHandedOffEmail() {
+  const key = new URLSearchParams(location.search).get("open");
+  if (!key || !elements.emailInput) return;
+  if (!handoff) {
+    showStatus("This browser cannot pass the email between tabs — save it with Save zip and upload it here.", "error");
     return;
   }
-  elements.emailInput.value = new TextDecoder("utf-8", { fatal: false }).decode(bytes);
-  handleAnalyze().then(() =>
-    showStatus(`Now analyzing the attached email "${btn.dataset.name}". Press Clear and paste the original to go back.`, "success"),
-  );
-  document.getElementById("summary-section")?.scrollIntoView({ behavior: "smooth" });
+  showStatus("Fetching the attached email from the original tab…", "info");
+  const nonce = Math.random().toString(36).slice(2);
+  const message = await new Promise((resolve) => {
+    const onMessage = (e) => {
+      if (e.data?.type !== "email" || e.data.nonce !== nonce) return;
+      handoff.removeEventListener("message", onMessage);
+      resolve(e.data);
+    };
+    handoff.addEventListener("message", onMessage);
+    handoff.postMessage({ type: "request", key, nonce });
+    setTimeout(() => {
+      handoff.removeEventListener("message", onMessage);
+      resolve(null);
+    }, 4000);
+  });
+  if (!message) {
+    showStatus("The tab this email came from is closed or was re-analyzed — open the attachment again from there.", "error");
+    return;
+  }
+  elements.emailInput.value = message.text;
+  document.title = `${message.name} — 4NMAIL`;
+  await handleAnalyze();
+  showStatus(`Analyzing the attached email "${message.name}". The original is still open in its own tab.`, "success");
 }
 
 /** An HTML attachment shown the same safe way as the message body. */
@@ -1795,7 +1835,7 @@ const ACTIONS = {
   dns: (btn) => fetchDns(btn),
   "copy-iocs": (btn) => copyAllIOCs(btn),
   "open-batch": (btn) => openBatchItem(btn.dataset.index),
-  "open-eml": (btn) => openAttachedEmail(btn),
+
   "save-zip": (btn) => saveAttachment(btn, false),
   "save-raw": (btn) => saveAttachment(btn, true),
   "decode-file": () => decodeFile(),
@@ -1825,6 +1865,7 @@ document.addEventListener(
     if (e.target.classList?.contains("url-decode")) renderDecoders(e.target);
     if (e.target.classList?.contains("whois-panel") && e.target.open) fetchWhois(e.target);
     if (e.target.classList?.contains("att-preview") && e.target.open) renderAttachmentPreview(e.target);
+    if (e.target.classList?.contains("att-details") && e.target.open) renderFileDetails(e.target);
   },
   true,
 );

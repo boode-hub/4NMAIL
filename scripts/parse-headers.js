@@ -35,6 +35,15 @@ export function parseHeaders(rawInput) {
     replyTo: extractAddress(first(headers["reply-to"])),
     returnPath: extractAddress(first(headers["return-path"])),
     to: extractAddress(first(headers.to)),
+    // Everyone the message was addressed to, and the mailbox it actually landed
+    // in (Delivered-To / X-Original-To — set by the receiving server, so it
+    // names a Bcc'd recipient the To line hides).
+    recipients: {
+      to: extractAddressList(headers.to),
+      cc: extractAddressList(headers.cc),
+      deliveredTo: extractAddress(first(headers["delivered-to"]) || first(headers["x-original-to"]))?.email || null,
+      toHeader: first(headers.to) || null,
+    },
     subject: decodeEncodedWords(first(headers.subject) || ""),
     date: first(headers.date),
     messageId: first(headers["message-id"]),
@@ -162,6 +171,36 @@ function parseHeaderLines(unfolded) {
   }
 
   return headers;
+}
+
+/**
+ * Every address in a list header — "A <a@x.com>, b@y.com" — splitting only on
+ * commas outside quotes and angle brackets ("Doe, Jane" <j@x.com> is one).
+ * Group syntax such as "undisclosed-recipients:;" yields no addresses.
+ */
+function extractAddressList(values) {
+  const out = [];
+  for (const value of asArray(values)) {
+    let part = "";
+    let quoted = false;
+    let angle = false;
+    for (const ch of String(value)) {
+      if (ch === '"') quoted = !quoted;
+      else if (ch === "<" && !quoted) angle = true;
+      else if (ch === ">" && !quoted) angle = false;
+      if (ch === "," && !quoted && !angle) {
+        out.push(part);
+        part = "";
+      } else {
+        part += ch;
+      }
+    }
+    out.push(part);
+  }
+  const seen = new Set();
+  return out
+    .map((p) => extractAddress(p.trim()))
+    .filter((a) => a?.email && !seen.has(a.email) && seen.add(a.email));
 }
 
 /**

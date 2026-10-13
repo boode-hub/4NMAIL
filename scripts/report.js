@@ -897,6 +897,11 @@ export function buildJsonReport(analysis, { lookups = new Map(), local = new Map
         replyTo: hd.replyTo?.email || null,
         returnPath: hd.returnPath?.email || null,
         to: hd.to?.email || null,
+        recipients: {
+          to: (hd.recipients?.to || []).map((a) => a.email),
+          cc: (hd.recipients?.cc || []).map((a) => a.email),
+          deliveredTo: hd.recipients?.deliveredTo || null,
+        },
         date: hd.date || null,
         messageId: hd.messageId || null,
       },

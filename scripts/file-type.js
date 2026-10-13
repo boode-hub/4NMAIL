@@ -144,3 +144,95 @@ export function inspectAttachment(att) {
 
   return out;
 }
+
+/**
+ * Shannon entropy in bits per byte (0–8). Text sits around 4–5; compressed,
+ * encrypted or packed content is close to 8.
+ */
+export function entropy(bytes) {
+  const n = Math.min(bytes.length, 8 * 1024 * 1024);
+  if (!n) return 0;
+  const counts = new Uint32Array(256);
+  for (let i = 0; i < n; i++) counts[bytes[i]]++;
+  let h = 0;
+  for (const c of counts) {
+    if (c) {
+      const p = c / n;
+      h -= p * Math.log2(p);
+    }
+  }
+  return h;
+}
+
+/** Architecture and build time of a Windows program, from its PE header. */
+function peInfo(bytes) {
+  if (bytes.length < 0x40 || bytes[0] !== 0x4d || bytes[1] !== 0x5a) return null;
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const pe = v.getUint32(0x3c, true);
+  if (pe + 24 > bytes.length || v.getUint32(pe, true) !== 0x00004550) return null;
+  const machine = v.getUint16(pe + 4, true);
+  const stamp = v.getUint32(pe + 8, true);
+  const characteristics = v.getUint16(pe + 22, true);
+  const arch = { 0x14c: "x86 (32-bit)", 0x8664: "x64 (64-bit)", 0xaa64: "ARM64", 0x1c4: "ARM" }[machine] || `machine 0x${machine.toString(16)}`;
+  return {
+    arch,
+    kind: characteristics & 0x2000 ? "DLL (library)" : "Executable",
+    // Linkers can write anything here; a date in the future or before 1995 is
+    // itself a sign the header was tampered with.
+    built: stamp ? new Date(stamp * 1000) : null,
+  };
+}
+
+/** Printable ASCII runs of six or more characters, as the strings tool finds them. */
+function strings(bytes, limit = 4 * 1024 * 1024) {
+  const out = [];
+  let run = "";
+  const n = Math.min(bytes.length, limit);
+  for (let i = 0; i < n; i++) {
+    const b = bytes[i];
+    if (b >= 0x20 && b < 0x7f) run += String.fromCharCode(b);
+    else {
+      if (run.length >= 6) out.push(run);
+      run = "";
+    }
+  }
+  if (run.length >= 6) out.push(run);
+  return out;
+}
+
+/**
+ * Everything worth knowing about a file before deciding what to do with it,
+ * read from its bytes: what it really is, whether its name agrees, how
+ * random it is, and what addresses are written inside it. Nothing is run.
+ */
+export function describeFile(bytes, name, declaredType) {
+  bytes = bytes || new Uint8Array();
+  const detected = sniffFileType(bytes);
+  const ext = extensionOf(name);
+  const h = entropy(bytes);
+  const text = strings(bytes);
+  const joined = text.join("\n");
+  const unique = (re) => [...new Set(joined.match(re) || [])];
+
+  let nameCheck;
+  if (!detected) nameCheck = { ok: null, text: "No known file signature — plain text, or a format this tool does not recognise" };
+  else if (!ext) nameCheck = { ok: false, text: `The name has no extension; the content is a ${detected.label}` };
+  else if (detected.extensions.includes(ext)) nameCheck = { ok: true, text: `".${ext}" matches the content (${detected.label})` };
+  else nameCheck = { ok: false, text: `".${ext}" does not match the content, which is a ${detected.label}` };
+
+  return {
+    size: bytes.length,
+    declaredType: declaredType || null,
+    detected: detected?.label || null,
+    nameCheck,
+    entropy: h,
+    entropyNote:
+      h >= 7.5 ? "very high — compressed, encrypted or packed" : h >= 6 ? "high — binary or compressed data" : h >= 3.5 ? "typical of text or documents" : "low — repetitive or mostly empty",
+    pe: peInfo(bytes),
+    head: bytes.subarray(0, 64),
+    urls: unique(/\bhttps?:\/\/[^\s"'<>()\\]{4,}/gi).slice(0, 15),
+    emails: unique(/\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g).slice(0, 10),
+    ips: unique(/\b(?:(?:25[0-5]|2[0-4]\d|1?\d?\d)\.){3}(?:25[0-5]|2[0-4]\d|1?\d?\d)\b/g).slice(0, 10),
+    stringCount: text.length,
+  };
+}
