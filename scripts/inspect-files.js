@@ -22,6 +22,7 @@
 import { sniffFileType } from "./file-type.js";
 import { crc32 } from "./file-export.js";
 import { msgToEml } from "./msg-parser.js";
+import { winZipAesDecrypt } from "./aes.js";
 
 const LIMITS = {
   entriesListed: 500,
@@ -108,7 +109,17 @@ export function readZipDirectory(bytes) {
     const extraLen = u16(bytes, at + 30);
     const commentLen = u16(bytes, at + 32);
     const rawName = bytes.subarray(at + 46, at + 46 + nameLen);
+    // WinZip AES entries (method 99) keep the key strength and the real
+    // compression method in extra field 0x9901.
+    let aes = null;
+    for (let x = at + 46 + nameLen, end = x + extraLen; x + 4 <= end && x + 4 <= bytes.length; ) {
+      const id = u16(bytes, x);
+      const size = u16(bytes, x + 2);
+      if (id === 0x9901 && size >= 7) aes = { strength: bytes[x + 8], method: u16(bytes, x + 9), version: u16(bytes, x + 4) };
+      x += 4 + size;
+    }
     entries.push({
+      aes,
       name: flags & 0x0800 ? new TextDecoder().decode(rawName) : latin1(rawName),
       flags,
       method: u16(bytes, at + 10),
@@ -158,18 +169,27 @@ export async function readZipEntry(bytes, entry, password = null, limit = LIMITS
   const start = at + 30 + u16(bytes, at + 26) + u16(bytes, at + 28);
   let data = bytes.subarray(start, start + entry.compressedSize);
 
+  let method = entry.method;
   if (entry.encrypted) {
-    if (!password || entry.method === 99) return null; // AES-encrypted: not supported
-    const check = entry.flags & 0x0008 ? (entry.time >>> 8) & 0xff : entry.crc >>> 24;
-    data = zipCryptoDecrypt(data, password, check);
+    if (!password) return null;
+    if (entry.method === 99) {
+      // WinZip AES: checked by HMAC, so a wrong password never gets through.
+      if (!entry.aes) return null;
+      data = await winZipAesDecrypt(data, password, entry.aes.strength);
+      method = entry.aes.method;
+    } else {
+      const check = entry.flags & 0x0008 ? (entry.time >>> 8) & 0xff : entry.crc >>> 24;
+      data = zipCryptoDecrypt(data, password, check);
+    }
     if (!data) return null;
   }
   let out = null;
-  if (entry.method === 0) out = data.length <= limit ? data.slice() : null;
-  else if (entry.method === 8) out = await inflate(data, "deflate-raw", limit);
+  if (method === 0) out = data.length <= limit ? data.slice() : null;
+  else if (method === 8) out = await inflate(data, "deflate-raw", limit);
   if (!out) return null;
-  // A wrong password can pass the one-byte check; the CRC cannot be fooled.
-  if (entry.encrypted && crc32(out) !== entry.crc) return null;
+  // A wrong ZipCrypto password can pass the one-byte check; the CRC cannot be
+  // fooled. (AES version 2 entries carry no CRC — their HMAC already held.)
+  if (entry.encrypted && !(entry.method === 99 && entry.aes?.version === 2) && crc32(out) !== entry.crc) return null;
   return out;
 }
 
@@ -184,9 +204,11 @@ export function findPasswords(text) {
   const found = [];
   const re = /\b(?:password|passcode|passphrase|pass\s*code|pwd|pw|kennwort|passwort|mot\s+de\s+passe|contrase[ñn]a|senha|parola|wachtwoord|пароль)\b\s*(?:for\s+the\s+(?:file|archive|attachment|zip|document)\s*)?(?:is|:|=|-|–|—)?\s*(?:is\s*)?[:\s]*["'“‘«]?([^\s"'”’»<>]{3,40})/giu;
   for (const m of String(text || "").matchAll(re)) {
-    const candidate = m[1].replace(/[.,;:!?)\]]+$/, "");
-    if (candidate.length < 3 || NOT_A_PASSWORD.has(candidate.toLowerCase())) continue;
-    if (!found.includes(candidate)) found.push(candidate);
+    // "The password is 4455." ends a sentence; "Password: S3cret!" ends the
+    // password. Both readings are tried — the archive says which is right.
+    const trimmed = m[1].replace(/[.,;:!?)\]]+$/, "");
+    if (trimmed.length < 3 || NOT_A_PASSWORD.has(trimmed.toLowerCase())) continue;
+    for (const candidate of [trimmed, m[1]]) if (!found.includes(candidate)) found.push(candidate);
     if (found.length >= 10) break;
   }
   return found;
@@ -242,7 +264,7 @@ async function inspectZip(att, bytes, ctx) {
           "Password in the email",
           password && ctx.passwords.includes(password)
             ? `The archive is password-protected and the email gives the password ("${password}") — scanners cannot open it, the victim can. Opened and inspected with that password.`
-            : `The archive is password-protected and the email offers a password (${ctx.passwords.map((p) => `"${p}"`).join(", ")}) — a way to get the contents past scanners.${aes ? " It uses AES encryption, which this tool cannot open." : ""}`,
+            : `The archive is password-protected and the email offers a password (${ctx.passwords.map((p) => `"${p}"`).join(", ")}) — a way to get the contents past scanners.${aes ? " (AES encryption.)" : ""}`,
         ),
       );
     } else {

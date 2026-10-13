@@ -3,6 +3,7 @@
 
 import assert from "node:assert/strict";
 import { deflateRawSync, deflateSync } from "node:zlib";
+import { readFileSync } from "node:fs";
 import { inspectContainers, findPasswords, readZipDirectory } from "../scripts/inspect-files.js";
 import { extractIOCs, refreshIOCs } from "../scripts/extract-iocs.js";
 import { calculateScore } from "../scripts/score.js";
@@ -97,7 +98,8 @@ const find = (iocs, name) => iocs.attachments.find((a) => a.value === name);
 
 await test("passwords written in the email are found; ordinary password talk is not", () => {
   assert.deepEqual(findPasswords("The password is: 7731"), ["7731"]);
-  assert.deepEqual(findPasswords("Archive pwd - Inv2024!"), ["Inv2024"]);
+  assert.deepEqual(findPasswords("Archive pwd - Inv2024!"), ["Inv2024", "Inv2024!"], "trailing punctuation: both readings");
+  assert.deepEqual(findPasswords("The password is 4455."), ["4455", "4455."]);
   assert.deepEqual(findPasswords('Use password "Qx9#2" to open'), ["Qx9#2"]);
   assert.deepEqual(findPasswords("Kennwort: abc123"), ["abc123"]);
   assert.deepEqual(findPasswords("Your password expires soon. Password reset required."), []);
@@ -127,6 +129,15 @@ await test("a password-protected ZIP is opened with the password from the email"
   assert.ok(risks(find(iocs, "scan.exe")).includes("executable-content"));
   const score = calculateScore(cleanAuth, iocs, null, {});
   assert.equal(score.tier, "High Risk");
+});
+
+await test("an AES-encrypted ZIP (made by 7-Zip) is opened with the password from the email", async () => {
+  const zip = new Uint8Array(readFileSync(new URL("./fixtures/aes256.zip", import.meta.url)));
+  const iocs = await analyse({ "statement.zip": zip }, "Your statement is attached. Password: S3cret!");
+  const archive = find(iocs, "statement.zip");
+  assert.ok(risks(archive).includes("archive-password"));
+  assert.match(archive.containerInfo.notes.join(), /Opened with the password "S3cret!"/);
+  assert.ok(find(iocs, "phishing-spoofed.eml"), "the email inside was extracted");
 });
 
 await test("a ZIP with an unknown password is flagged, not opened", async () => {

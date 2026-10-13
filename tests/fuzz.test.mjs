@@ -133,13 +133,14 @@ const SEEDS = {
   ics: enc("BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VEVENT\r\nDESCRIPTION:go to https://cal.te\r\n st/x\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n"),
   ole: new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, ...enc("_\0V\0B\0A\0_\0P\0R\0O\0J\0E\0C\0T\0 AutoOpen")]),
   msg: sampleMsg(),
+  aes: new Uint8Array(readFileSync(new URL("./fixtures/aes256.zip", import.meta.url))),
 };
 const EML = readFileSync(new URL("../sample-data/phishing-spoofed.eml", import.meta.url), "utf8");
 
 // The seeds must be valid, or the mutations never reach the deep code paths.
 {
   assert.match(msgToEml(SEEDS.msg), /paypa1\.com/);
-  const body = { text: "the password is 4455", links: [], attachments: Object.entries(SEEDS).map(([k, bytes]) => ({ filename: `${k}.${{ zip: "docx", zipStored: "zip", zipEncrypted: "zip", pdf: "pdf", rtf: "rtf", ics: "ics", ole: "doc", msg: "msg" }[k]}`, size: bytes.length, bytes })) };
+  const body = { text: "the password is 4455. Password: S3cret!", links: [], attachments: Object.entries(SEEDS).map(([k, bytes]) => ({ filename: `${k}.${{ zip: "docx", zipStored: "zip", zipEncrypted: "zip", pdf: "pdf", rtf: "rtf", ics: "ics", ole: "doc", msg: "msg", aes: "zip" }[k]}`, size: bytes.length, bytes })) };
   const iocs = extractIOCs({}, body);
   await inspectContainers(iocs, body);
   refreshIOCs(iocs);
@@ -172,9 +173,9 @@ async function check(label, fn) {
 for (const [kind, src] of Object.entries(SEEDS)) {
   for (let i = 0; i < 150; i++) {
     const bytes = mutate(src);
-    const name = { zip: "a.docx", zipStored: "a.zip", zipEncrypted: "a.zip", pdf: "a.pdf", rtf: "a.rtf", ics: "a.ics", ole: "a.doc", msg: "a.msg" }[kind];
+    const name = { zip: "a.docx", zipStored: "a.zip", zipEncrypted: "a.zip", pdf: "a.pdf", rtf: "a.rtf", ics: "a.ics", ole: "a.doc", msg: "a.msg", aes: "a.zip" }[kind];
     await check(`${kind} #${i}`, async () => {
-      const body = { text: "the password is 4455", links: [], attachments: [{ filename: name, contentType: "application/octet-stream", size: bytes.length, bytes }] };
+      const body = { text: "the password is 4455. Password: S3cret!", links: [], attachments: [{ filename: name, contentType: "application/octet-stream", size: bytes.length, bytes }] };
       const iocs = extractIOCs({ from: { email: "a@b.test" } }, body);
       await inspectContainers(iocs, body);
       refreshIOCs(iocs);

@@ -341,9 +341,3 @@ export function msgToEml(bytes) {
   const cfb = readCompoundFile(bytes);
   return messageToEml(cfb, cfb.root, true, 0);
 }
-
-/** The source of an uploaded email file, whichever format it is in. */
-export async function readEmailFile(file) {
-  if (/\.msg$/i.test(file.name || "")) return msgToEml(new Uint8Array(await file.arrayBuffer()));
-  return file.text();
-}

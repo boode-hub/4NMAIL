@@ -8,7 +8,7 @@ import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
 import { inspectContainers } from "./inspect-files.js";
-import { readEmailFile } from "./msg-parser.js";
+import { emailsFromUpload, askZipPassword } from "./upload.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity, setProtectedDomains, parseDomainList, protectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
@@ -473,21 +473,20 @@ async function handleAnalyze() {
 // that message into the full view.
 const batchItems = [];
 
-async function analyzeBatch(files) {
+async function analyzeBatch(emails) {
   const section = document.getElementById("batch-section");
   const body = document.getElementById("batch-content");
   if (!section || !body) return;
 
   batchItems.length = 0;
   section.classList.remove("hidden");
-  body.innerHTML = `<p class="batch-progress">Analyzing ${files.length} files…</p>`;
+  body.innerHTML = `<p class="batch-progress">Analyzing ${emails.length} files…</p>`;
 
-  for (const file of files) {
-    let row = { name: file.name, text: "" };
+  for (const email of emails) {
+    let row = { name: email.archive ? `${email.archive} › ${email.name}` : email.name, text: email.text || "" };
     try {
-      const text = await readEmailFile(file);
-      row.text = text;
-      const { analysis, error } = await buildAnalysis(text);
+      if (email.error) throw new Error(email.error);
+      const { analysis, error } = await buildAnalysis(row.text);
       if (error) row.error = error;
       else
         row = {
@@ -704,27 +703,46 @@ function downloadFile({ name, type, content }) {
 }
 
 // Handle File Upload
-function handleFileUpload(e) {
+async function handleFileUpload(e) {
   const chosen = [...e.target.files];
   if (!chosen.length) return;
 
-  // Several files at once: score them all and show the list.
-  if (chosen.length > 1) {
-    analyzeBatch(chosen);
+  // Every file opened: .msg converted, a ZIP (password-protected or not)
+  // replaced by the emails inside it. A file that cannot be read stays in
+  // the list with its reason.
+  const emails = [];
+  for (const file of chosen) {
+    try {
+      emails.push(...(await emailsFromUpload(file, askZipPassword)));
+    } catch (err) {
+      emails.push({ name: file.name, error: err.message });
+    }
+  }
+  if (elements.fileUpload) elements.fileUpload.value = "";
+  if (!emails.length) {
+    showStatus("Cancelled — nothing was opened.", "info");
     return;
   }
 
-  const file = chosen[0];
-  document.getElementById("batch-section")?.classList.add("hidden");
+  // Several emails at once: score them all and show the list.
+  if (emails.length > 1) {
+    analyzeBatch(emails);
+    return;
+  }
 
-  // .msg files are converted to the standard message format on the way in.
-  readEmailFile(file).then(
-    (text) => {
-      if (elements.emailInput) elements.emailInput.value = text;
-      showStatus(`Loaded: ${file.name}${/\.msg$/i.test(file.name) ? " (converted from Outlook .msg)" : ""}`, "success");
-    },
-    (err) => showStatus(`Error reading ${file.name}: ${err.message}`, "error"),
-  );
+  const [email] = emails;
+  document.getElementById("batch-section")?.classList.add("hidden");
+  if (email.error) {
+    showStatus(`Error reading ${email.name}: ${email.error}`, "error");
+    return;
+  }
+  if (elements.emailInput) elements.emailInput.value = email.text;
+  const how = email.archive
+    ? ` from ${email.archive}`
+    : /\.msg$/i.test(email.name)
+      ? " (converted from Outlook .msg)"
+      : "";
+  showStatus(`Loaded: ${email.name}${how}`, "success");
 }
 
 // Theme colour: live preview while picking, saved on every change.

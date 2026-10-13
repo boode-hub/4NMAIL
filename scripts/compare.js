@@ -11,7 +11,7 @@ import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
 import { inspectContainers } from "./inspect-files.js";
-import { readEmailFile } from "./msg-parser.js";
+import { emailsFromUpload, askZipPassword } from "./upload.js";
 import { analyzeLanguage } from "./analyze-language.js";
 import { analyzeIdentity, setProtectedDomains } from "./analyze-identity.js";
 import { analyzeThread } from "./analyze-thread.js";
@@ -97,8 +97,15 @@ async function addFiles(files) {
   let failed = 0;
   for (const file of usable) {
     try {
-      const analysis = await analyse(await readEmailFile(file));
-      items.push({ name: file.name, analysis });
+      // A ZIP (password-protected or not) contributes every email inside it.
+      for (const email of await emailsFromUpload(file, askZipPassword)) {
+        try {
+          items.push({ name: email.archive ? `${email.archive} › ${email.name}` : email.name, analysis: await analyse(email.text) });
+        } catch (e) {
+          failed++;
+          console.warn("[compare]", email.name, e.message);
+        }
+      }
     } catch (e) {
       failed++;
       console.warn("[compare]", file.name, e.message);

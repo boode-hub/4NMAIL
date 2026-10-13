@@ -101,13 +101,15 @@ PORT=3000 node server.js
    - **Gmail:** open the message → ⋮ → **Show original** → copy it, or **Download original** for an `.eml` file.
    - **Outlook on the web:** open the message → ⋯ → **View** → **View message source**.
    - **Outlook desktop:** **File → Properties** shows the Internet headers. Headers alone are enough for the authentication and routing analysis; body, links and attachments need the full source.
-2. **Paste** it into the input box, **upload** the `.eml`, Outlook `.msg` or `.txt` file, or **drag and drop** files anywhere on the page.
+2. **Paste** it into the input box, **upload** the `.eml`, Outlook `.msg` or `.txt` file — or a `.zip` of them, password-protected or not — or **drag and drop** files anywhere on the page.
 3. Click **Analyze Email**.
 4. Read the **Quick Summary** first, then drill into the panels below it.
 5. Optionally add **VirusTotal / AbuseIPDB API keys** in **Settings** to look indicators up in place.
 6. **Export** an HTML report and/or a CSV from the bar above the results.
 
 Text that is not an email is refused rather than given a verdict.
+
+**Password-protected ZIPs.** Security tools and mail admins hand suspicious emails over in an encrypted ZIP so nothing deletes or opens them on the way. Upload or drop the `.zip` as it is: the password `infected` (the convention for malware samples) is tried first, and only if that fails a small dialog asks for the password, saying so when one was wrong. Both ZIP encryptions are supported — classic ZipCrypto and WinZip **AES-128/192/256**, which 7-Zip, WinZip and most security tools use. Every `.eml`, `.msg` and `.txt` inside is extracted: one goes straight into the input box, several are scored as a batch. Decryption happens in the browser; the password and the file go nowhere. Works on the comparison page too.
 
 **Outlook `.msg` files** are read directly: the original Internet headers, the plain and HTML bodies (in the message's own code page), every attachment byte-for-byte, and attached Outlook items — which become attached emails with their own **Analyze this attached email** button. A `.msg` that never crossed the Internet (sent internally, or a draft) has no Internet headers; the sender, recipients, subject and date are rebuilt from the message's properties and the result is marked `X-Converted-From`. `.msg` works in batches and on the comparison page too. Bodies stored only as compressed RTF are not decoded.
 
@@ -268,7 +270,7 @@ Running the attachment to watch it was considered and rejected: a browser sandbo
 
 **Archives, Office documents, PDFs and RTF are opened and read — never run.** Under each one, the app lists what it found inside:
 
-- **ZIP archives** — the file list; programs and archives inside the archive; whether it is password-protected. When the email gives the password ("the password is 4455") the archive is **opened with it**, and that pattern — a file hidden from scanners but not from the victim — is flagged on its own. Files inside are extracted and checked like any attachment (hashed, typed from their bytes, downloadable), two levels deep. AES-encrypted archives can be listed but not opened.
+- **ZIP archives** — the file list; programs and archives inside the archive; whether it is password-protected. When the email gives the password ("the password is 4455") the archive is **opened with it**, and that pattern — a file hidden from scanners but not from the victim — is flagged on its own. Files inside are extracted and checked like any attachment (hashed, typed from their bytes, downloadable), two levels deep. Both ZipCrypto and AES-encrypted archives are opened when the password is known.
 - **Office documents** (docx/xlsx/pptx and the macro-enabled variants) — VBA macros, remote templates (template injection), remote linked objects, DDE commands, ActiveX controls, embedded objects, and every external link, which becomes a URL indicator. **Legacy** `.doc`/`.xls` files are checked for macro streams, auto-running macro code and embedded packages.
 - **PDFs** — JavaScript, actions that run on open, launch actions, embedded files (extracted), form submission and rich media. Compressed streams are decompressed and names written with `#xx` escapes are decoded, so hidden links and scripts are found; every link becomes a URL indicator.
 - **RTF** — embedded objects, objects that update themselves on open, the Equation Editor exploit (CVE-2017-11882), remote templates and hyperlinks.
@@ -583,6 +585,8 @@ Raw email
 │   ├── analyze-identity.js     Display-name and lookalike-domain analysis
 │   ├── analyze-unicode.js      Right-to-left overrides, invisible characters, mixed alphabets
 │   ├── inspect-files.js        Looking inside ZIP, Office, PDF, RTF and calendar attachments
+│   ├── upload.js               Reading uploads: emails, and emails inside (password-protected) ZIPs
+│   ├── aes.js                  AES and WinZip AES decryption for encrypted ZIPs
 │   ├── msg-parser.js           Outlook .msg (Compound File) to RFC 822 conversion
 │   ├── file-type.js            Attachment content sniffing and HTML smuggling
 │   ├── compare-model.js        Side-by-side table and campaign correlation
@@ -630,6 +634,7 @@ node tests/deception.test.mjs    # your domains, Unicode tricks, attack type
 node tests/containers.test.mjs   # inside ZIP (incl. password from the email), Office, PDF, RTF, calendar invites
 node tests/msg.test.mjs          # Outlook .msg: Compound File reading (mini and regular streams), conversion
 node tests/qr.test.mjs           # QR codes from a spec-built encoder: images, PDF images, verdict floor
+node tests/upload.test.mjs       # password-protected ZIP uploads (real 7-Zip AES and ZipCrypto archives), AES test vectors
 node tests/details.test.mjs      # recipients, URL encoding explanations, file details
 node tests/fuzz.test.mjs         # 2,000 corrupted ZIP/PDF/.msg/RTF/ICS/email inputs: no crash, hang or runaway memory
 node tests/perf.bench.mjs        # speed of the whole pipeline on deliberately huge messages
@@ -659,10 +664,11 @@ node tests/imports.test.mjs      # every cross-module call is imported
 | containers | 14 |
 | msg | 8 |
 | qr | 5 |
+| upload | 7 |
 | details | 8 |
 | fuzz | 2,000 inputs |
 | imports | 1 |
-| **Total** | **411** + fuzz |
+| **Total** | **419** + fuzz |
 
 **Deployment:** every push to `master` runs all suites in GitHub Actions and deploys to GitHub Pages only if they pass. A broken build never reaches the live site. After a deploy, browsers may keep the previous version for a few minutes — press **Ctrl+F5** to load the latest.
 
@@ -686,7 +692,7 @@ node tests/imports.test.mjs      # every cross-module call is imported
 - **Wording raises the tier only in narrow cases** — two or more strong BEC or extortion phrases, three or more advance-fee phrases, or a QR link with pressure wording. Otherwise urgent-sounding mail from an authenticated sender stays **Low Risk** with its phrases listed, to avoid false alarms. Always verify payment or bank-detail changes by phone using a known number.
 - **Language detection is English-only.**
 - **Relaxed alignment uses a compact list of multi-part domain suffixes**, not the full Public Suffix List; unusual country suffixes may be judged by their last two labels.
-- **Attachments are read, not scanned for known malware** — structure and content are inspected, but there is no antivirus signature check; look the hash up to learn about the file. RAR, 7-Zip and AES-encrypted ZIP archives are not opened.
+- **Attachments are read, not scanned for known malware** — structure and content are inspected, but there is no antivirus signature check; look the hash up to learn about the file. RAR and 7-Zip (`.7z`) archives are not opened; ZIP archives are, encrypted or not.
 - **Mimecast-rewritten links cannot be unwrapped**, because Mimecast keeps the destination on its servers.
 
 ---
