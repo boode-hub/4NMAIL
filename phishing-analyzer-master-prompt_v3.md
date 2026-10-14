@@ -63,7 +63,7 @@ Deployment and hosting:
 
 ```
 /index.html                  app shell (all panels, settings modal, inline themable logo)
-/favicon.svg                 Glitch Tomoe mark (§15.2)
+/favicon.svg                 three-tomoe Sharingan mark (§15.2)
 /favicon-32.png              32×32 raster of the mark
 /apple-touch-icon.png        180×180 raster of the mark
 /styles/main.css             design system + every component + responsive rules
@@ -865,7 +865,7 @@ A single self-contained HTML file in the app's visual style.
 
 1. **Trust banner:** a shield icon and "All analysis runs locally in your browser. Nothing is uploaded unless you explicitly use VirusTotal/AbuseIPDB with your own API key."
 2. **Header:**
-   - `<h1>` with the **inline** Glitch Tomoe SVG (class `app-logo`, 30×30, `fill`/`stroke="currentColor"`, `color: var(--accent)`, ids prefixed `logo-`). It is inline so it follows the theme colour.
+   - `<h1>` with the **inline** three-tomoe Sharingan SVG (class `app-logo`, 30×30, `fill`/`stroke="currentColor"`, `color: var(--accent)`, ids prefixed `logo-`). It is inline so it follows the theme colour.
    - Then "Phishing Email Analyzer".
    - A Settings button (gear icon + `<span class="btn-label">Settings</span>`, `aria-label="Settings"`).
 3. **Email Input panel:**
@@ -1171,31 +1171,22 @@ Copy buttons show "Copied!" or "Copy failed" for 2 s.
 - **Look:** a dark, HTB-inspired theme with a soft radial accent glow at the top of the page (`width: min(800px, 100vw)`, 400 px high, pointer-events none).
 - **Language category colours:** urgency and authority amber, credential and financial red, **bec purple** (`--purple`), for both `.lang-highlight.bec` and `.highlight-bec`.
 
-### 15.2 Logo: Glitch Tomoe (`favicon.svg`)
+### 15.2 Logo: three-tomoe Sharingan (`favicon.svg`)
+
+The Sharingan Tray Monitor's three-tomoe eye (tomoe traced from the reference artwork), in the accent on a black iris. Canonical copy: `4N-HQ/style/brand/`.
 
 ```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 110 110">
-  <defs>
-    <g id="eye">
-      <circle cx="50" cy="50" r="48" fill="#000"/>
-      <circle cx="50" cy="50" r="46.5" fill="none" stroke="#9fef00" stroke-width="2.5"/>
-      <g id="t" fill="#9fef00">
-        <path d="M50 12A38 38 0 0 1 81 28Q69 22 50 26Z"/>
-        <circle cx="50" cy="19" r="7"/>
-      </g>
-      <use href="#t" transform="rotate(120 50 50)"/>
-      <use href="#t" transform="rotate(240 50 50)"/>
-      <circle cx="50" cy="50" r="8" fill="#9fef00"/>
-    </g>
-    <clipPath id="s1"><rect x="-10" y="22" width="120" height="7"/></clipPath>
-    <clipPath id="s2"><rect x="-10" y="47" width="120" height="5"/></clipPath>
-    <clipPath id="s3"><rect x="-10" y="70" width="120" height="6"/></clipPath>
-  </defs>
-  <!-- The whole eye, then three horizontal slices of it shifted sideways. -->
-  <use href="#eye"/>
-  <g clip-path="url(#s1)"><use href="#eye" x="7"/></g>
-  <g clip-path="url(#s2)"><use href="#eye" x="-6"/></g>
-  <g clip-path="url(#s3)"><use href="#eye" x="5"/></g>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 138 138">
+  <!-- The three-tomoe Sharingan from the Sharingan Tray Monitor, in the 4N accent. -->
+  <circle cx="64" cy="64" r="58" fill="#000" stroke="#9fef00" stroke-width="4.5"/>
+  <circle cx="64" cy="64" r="35" fill="none" stroke="#9fef00" stroke-width="3.2"/>
+  <g id="t" fill="#9fef00">
+    <circle cx="64" cy="29" r="9.14"/>
+    <path d="M54.7 27.3 54.7 26.8 54.8 26.3 54.9 25.8 55 25.3 55.1 24.8 55.2 24.2 55.4 23.7 55.6 23.2 55.8 22.7 56 22.2 56.3 21.7 56.6 21.2 56.9 20.7 57.3 20.3 57.7 19.8 58.1 19.3 58.5 18.8 58.9 18.3 59.4 17.9 59.9 17.4 60.4 17 61 16.5 61.6 16.2 62.3 15.8 62.9 15.6 63.6 15.3 64.4 15 65.1 14.8 65.9 14.6 66.7 14.6 67.5 14.6 68.3 14.6 69.1 14.5 70 14.6 70.8 14.7 71.7 14.9 72.5 15.1 73.3 15.4 74.2 15.7 75 16.1 75.8 16.6 76.5 17.1 77.4 17.6 78.2 18.1 79 18.7 79.7 19.4 80.5 20.1 81 20.9 81 20.9 79.5 20.6 78.3 20.2 77.2 20 76 19.8 75 19.6 73.9 19.6 72.9 19.6 71.9 19.7 70.9 20 69.9 20.4 69.1 20.7 68.4 21 67.9 20.8 67.5 20.6 67 20.4 66.6 20.2 66.1 20.1 65.7 20 65.2 19.9 64.7 19.9 64.2 19.9 63.8 19.9 63.3 19.9 62.8 19.9 62.3 20 61.9 20.1 61.4 20.2 61 20.4 60.5 20.6 60.1 20.8 59.6 21 59.2 21.2 58.8 21.5 58.4 21.8 58.1 22.1 57.7 22.4 57.4 22.7 57 23.1 56.8 23.4 56.5 23.8 56.2 24.2 56 24.6 55.8 25.1 55.6 25.5 55.4 25.9 55.2 26.4 55.1 26.9 55 27.3Z"/>
+  </g>
+  <use href="#t" transform="rotate(120 64 64)"/>
+  <use href="#t" transform="rotate(240 64 64)"/>
+  <circle cx="64" cy="64" r="14" fill="#9fef00"/>
 </svg>
 ```
 
