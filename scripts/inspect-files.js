@@ -23,6 +23,7 @@ import { sniffFileType } from "./file-type.js";
 import { crc32 } from "./file-export.js";
 import { msgToEml } from "./msg-parser.js";
 import { winZipAesDecrypt } from "./aes.js";
+import { read7z, PasswordRequired, WrongPassword } from "./sevenzip.js";
 
 const LIMITS = {
   entriesListed: 500,
@@ -293,6 +294,87 @@ async function inspectZip(att, bytes, ctx) {
       inline: false,
       embeddedIn: att.value,
       bytes: content,
+      depth: (att.depth || 0) + 1,
+    });
+  }
+}
+
+/**
+ * A 7z attachment: like a ZIP — list it, flag programs and archives inside,
+ * open it with a password from the email (or "infected") when it is locked,
+ * and extract what is inside for the same checks as any attachment.
+ */
+async function inspect7z(att, bytes, ctx) {
+  const info = { kind: "7z archive", entries: [], notes: [] };
+  att.containerInfo = info;
+  let files = null;
+  let password = null;
+  let locked = false;
+  for (const candidate of [null, ...ctx.passwords, "infected"]) {
+    try {
+      files = await read7z(bytes, candidate, () => true, Math.max(0, ctx.extractBudget));
+      password = candidate;
+      break;
+    } catch (err) {
+      if (!(err instanceof PasswordRequired || err instanceof WrongPassword)) throw err;
+      locked = true;
+    }
+  }
+  // Locked with file names hidden too, or unlocked: whatever names can be read.
+  if (!files) {
+    try {
+      files = (await read7z(bytes, null, () => false)).map((f) => ({ ...f, bytes: null }));
+    } catch {
+      info.notes.push("The file names are encrypted as well — nothing can be listed without the password.");
+      files = [];
+    }
+  }
+  const names = files.map((f) => f.name);
+  info.entries = names.slice(0, 50);
+  info.total = names.length;
+
+  const programs = names.filter((n) => PROGRAM_EXT.has(extOf(n)) || /\.[a-z0-9]{2,4}\.(exe|scr|js|vbs|bat|cmd|lnk|hta)$/i.test(n));
+  if (programs.length) {
+    att.containerFindings.push(finding("high", "archive-executable", "Program inside archive", `Contains ${programs.slice(0, 3).join(", ")}${programs.length > 3 ? ` and ${programs.length - 3} more` : ""}`));
+  }
+  const nested = names.filter((n) => ARCHIVE_EXT.has(extOf(n)));
+  if (nested.length) att.containerFindings.push(finding("medium", "nested-archive", "Archive inside archive", `Contains ${nested.slice(0, 3).join(", ")} — layered archives defeat scanners`));
+
+  if (locked) {
+    if (ctx.passwords.length) {
+      att.containerFindings.push(
+        finding(
+          "high",
+          "archive-password",
+          "Password in the email",
+          password && ctx.passwords.includes(password)
+            ? `The archive is password-protected and the email gives the password ("${password}") — scanners cannot open it, the victim can. Opened and inspected with that password.`
+            : `The archive is password-protected and the email offers a password (${ctx.passwords.map((p) => `"${p}"`).join(", ")}) — a way to get the contents past scanners.`,
+        ),
+      );
+    } else if (!password) {
+      att.containerFindings.push(finding("medium", "archive-encrypted", "Password-protected", "The 7z archive is encrypted — its contents cannot be checked."));
+    }
+    info.notes.push(password ? `Opened with the password "${password}".` : "Encrypted — contents not inspected.");
+  }
+
+  let extracted = 0;
+  for (const f of files) {
+    if (!f.bytes?.length) continue;
+    if (extracted >= LIMITS.entriesExtracted || ctx.extractBudget <= 0) {
+      info.notes.push(`Only the first ${extracted} files were extracted.`);
+      break;
+    }
+    extracted++;
+    ctx.extractBudget -= f.bytes.length;
+    ctx.children.push({
+      value: f.name.split(/[\\/]/).pop() || f.name,
+      contentType: sniffFileType(f.bytes)?.label || "unknown",
+      size: f.bytes.length,
+      source: `Inside archive ${att.value}`,
+      inline: false,
+      embeddedIn: att.value,
+      bytes: f.bytes,
       depth: (att.depth || 0) + 1,
     });
   }
@@ -732,6 +814,7 @@ export async function inspectContainers(iocs, body) {
       const ext = extOf(att.value);
       try {
         if (/^ZIP/.test(kind)) await inspectZip(att, bytes, ctx);
+        else if (/^7-Zip/.test(kind)) await inspect7z(att, bytes, ctx);
         // Readers accept a PDF header anywhere in the first 1 KB; so do attackers.
         else if (/^PDF/.test(kind) || latin1(bytes.subarray(0, 1024)).includes("%PDF-")) await inspectPdf(att, bytes, ctx);
         else if (/^RTF/.test(kind)) inspectRtf(att, bytes, ctx);

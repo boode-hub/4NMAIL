@@ -14,6 +14,7 @@ import { parseBody } from "../scripts/parse-body.js";
 import { extractIOCs, refreshIOCs } from "../scripts/extract-iocs.js";
 import { inspectContainers } from "../scripts/inspect-files.js";
 import { msgToEml } from "../scripts/msg-parser.js";
+import { read7z } from "../scripts/sevenzip.js";
 import { analyzeLanguage } from "../scripts/analyze-language.js";
 import { analyzeThread } from "../scripts/analyze-thread.js";
 import { analyzeUnicode } from "../scripts/analyze-unicode.js";
@@ -134,13 +135,15 @@ const SEEDS = {
   ole: new Uint8Array([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, ...enc("_\0V\0B\0A\0_\0P\0R\0O\0J\0E\0C\0T\0 AutoOpen")]),
   msg: sampleMsg(),
   aes: new Uint8Array(readFileSync(new URL("./fixtures/aes256.zip", import.meta.url))),
+  sz: new Uint8Array(readFileSync(new URL("./fixtures/7z-pw-lzma2.7z", import.meta.url))),
+  szLzma: new Uint8Array(readFileSync(new URL("./fixtures/7z-lzma.7z", import.meta.url))),
 };
 const EML = readFileSync(new URL("../sample-data/phishing-spoofed.eml", import.meta.url), "utf8");
 
 // The seeds must be valid, or the mutations never reach the deep code paths.
 {
   assert.match(msgToEml(SEEDS.msg), /paypa1\.com/);
-  const body = { text: "the password is 4455. Password: S3cret!", links: [], attachments: Object.entries(SEEDS).map(([k, bytes]) => ({ filename: `${k}.${{ zip: "docx", zipStored: "zip", zipEncrypted: "zip", pdf: "pdf", rtf: "rtf", ics: "ics", ole: "doc", msg: "msg", aes: "zip" }[k]}`, size: bytes.length, bytes })) };
+  const body = { text: "the password is 4455. Password: S3cret!", links: [], attachments: Object.entries(SEEDS).map(([k, bytes]) => ({ filename: `${k}.${{ zip: "docx", zipStored: "zip", zipEncrypted: "zip", pdf: "pdf", rtf: "rtf", ics: "ics", ole: "doc", msg: "msg", aes: "zip", sz: "7z", szLzma: "7z" }[k]}`, size: bytes.length, bytes })) };
   const iocs = extractIOCs({}, body);
   await inspectContainers(iocs, body);
   refreshIOCs(iocs);
@@ -173,13 +176,22 @@ async function check(label, fn) {
 for (const [kind, src] of Object.entries(SEEDS)) {
   for (let i = 0; i < 150; i++) {
     const bytes = mutate(src);
-    const name = { zip: "a.docx", zipStored: "a.zip", zipEncrypted: "a.zip", pdf: "a.pdf", rtf: "a.rtf", ics: "a.ics", ole: "a.doc", msg: "a.msg", aes: "a.zip" }[kind];
+    const name = { zip: "a.docx", zipStored: "a.zip", zipEncrypted: "a.zip", pdf: "a.pdf", rtf: "a.rtf", ics: "a.ics", ole: "a.doc", msg: "a.msg", aes: "a.zip", sz: "a.7z", szLzma: "a.7z" }[kind];
     await check(`${kind} #${i}`, async () => {
       const body = { text: "the password is 4455. Password: S3cret!", links: [], attachments: [{ filename: name, contentType: "application/octet-stream", size: bytes.length, bytes }] };
       const iocs = extractIOCs({ from: { email: "a@b.test" } }, body);
       await inspectContainers(iocs, body);
       refreshIOCs(iocs);
     });
+  }
+}
+
+// 1b. Corrupted 7z archives straight into the reader, with the right password,
+//     so the mutations reach the LZMA/LZMA2 decoders and the AES layer.
+for (const [seed, password] of [[SEEDS.sz, "S3cret!"], [SEEDS.szLzma, null]]) {
+  for (let i = 0; i < 150; i++) {
+    const bytes = mutate(seed);
+    await check(`read7z #${i}`, () => read7z(bytes, password, () => true, 8 * 1024 * 1024));
   }
 }
 

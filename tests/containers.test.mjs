@@ -140,6 +140,25 @@ await test("an AES-encrypted ZIP (made by 7-Zip) is opened with the password fro
   assert.ok(find(iocs, "phishing-spoofed.eml"), "the email inside was extracted");
 });
 
+await test("a 7z attachment (made by 7-Zip) is opened with the password from the email", async () => {
+  const sz = new Uint8Array(readFileSync(new URL("./fixtures/7z-pw-lzma2.7z", import.meta.url)));
+  const iocs = await analyse({ "PAYMENT.7z": sz }, "Invoice attached, archive password: S3cret!");
+  const archive = find(iocs, "PAYMENT.7z");
+  assert.equal(archive.containerInfo.kind, "7z archive");
+  assert.ok(risks(archive).includes("archive-password"));
+  assert.match(archive.containerInfo.notes.join(), /Opened with the password "S3cret!"/);
+  assert.ok(find(iocs, "large-thread.eml") && find(iocs, "phishing-spoofed.eml"), "contents extracted");
+});
+
+await test("a locked 7z without its password is listed if it can be, and flagged", async () => {
+  const listed = await analyse({ "a.7z": new Uint8Array(readFileSync(new URL("./fixtures/7z-pw-lzma2.7z", import.meta.url))) });
+  const a = find(listed, "a.7z");
+  assert.ok(risks(a).includes("archive-encrypted"));
+  assert.deepEqual([...a.containerInfo.entries].sort(), ["large-thread.eml", "legitimate-email.eml", "phishing-spoofed.eml"]);
+  const hidden = await analyse({ "b.7z": new Uint8Array(readFileSync(new URL("./fixtures/7z-pw-headers.7z", import.meta.url))) });
+  assert.match(find(hidden, "b.7z").containerInfo.notes.join(), /file names are encrypted/);
+});
+
 await test("a ZIP with an unknown password is flagged, not opened", async () => {
   const iocs = await analyse({ "x.zip": zipEncrypted("x.exe", PROGRAM, "unguessable-9") });
   const archive = find(iocs, "x.zip");
