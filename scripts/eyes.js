@@ -89,20 +89,28 @@ globalThis.addEventListener?.('storage', (e) => {
   }
 });
 
-const CSS = `.eye-picker{display:grid;gap:10px}
-.eye-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:6px;padding:2px}
-.eye-grid button{display:flex;flex-direction:column;align-items:center;gap:4px;padding:8px 4px 6px;cursor:pointer;
-  background:var(--bg-deep,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;color:var(--accent,#9fef00);
-  font:500 10.5px/1.2 var(--sans,'Inter',sans-serif)}
-.eye-grid button span{color:var(--text-secondary,#8b949e);text-align:center}
+const CSS = `.eye-picker{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px}
+.eye-drop[open]{flex-basis:100%}
+.eye-drop>summary{display:inline-flex;align-items:center;gap:8px;padding:4px 10px 4px 5px;cursor:pointer;list-style:none;
+  background:var(--bg-deep,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px;color:var(--accent,#9fef00)}
+.eye-drop>summary::-webkit-details-marker{display:none}
+.eye-drop>summary::after{content:"";width:6px;height:6px;margin-top:-3px;border:solid var(--text-secondary,#8b949e);border-width:0 1.5px 1.5px 0;transform:rotate(45deg);transition:transform .15s}
+.eye-drop[open]>summary::after{transform:rotate(-135deg);margin-top:3px}
+.eye-drop>summary:hover,.eye-drop[open]>summary{border-color:var(--accent,#9fef00)}
+.eye-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(44px,1fr));gap:5px;margin-top:6px;padding:6px;
+  background:var(--bg-deep,#0d1117);border:1px solid var(--border,#30363d);border-radius:8px}
+.eye-grid button{display:grid;place-items:center;padding:4px;cursor:pointer;background:none;
+  border:1px solid transparent;border-radius:6px;color:var(--accent,#9fef00)}
 .eye-grid button:hover{border-color:var(--text-muted,#6e7681)}
 .eye-grid button[aria-pressed=true]{border-color:var(--accent,#9fef00);background:color-mix(in srgb,var(--accent,#9fef00) 10%,transparent)}
-.eye-grid button[aria-pressed=true] span{color:var(--accent,#9fef00)}
 /* doubled class: beats an app's own "form label" / "form input" rules */
 .eye-invert.eye-invert{display:inline-flex;align-items:center;gap:8px;margin:0;cursor:pointer;color:var(--text-secondary,#8b949e);font-size:12.5px;font-weight:500}
 .eye-invert.eye-invert input{appearance:auto;accent-color:var(--accent,#9fef00);width:15px;height:15px;margin:0;padding:0;border:0;background:none;box-shadow:none}`;
 
-/** A grid of every eye plus an Invert switch, wired to setEye. Returns the element. */
+/**
+ * A dropdown of every eye (no names on show: each has its name as a tooltip
+ * and for screen readers) plus an Invert switch, wired to setEye.
+ */
 export function eyePicker(container) {
   if (!document.getElementById('eye-picker-css')) {
     const st = document.createElement('style');
@@ -111,17 +119,26 @@ export function eyePicker(container) {
     document.head.append(st);
   }
   const pref = getEye();
-  const thumb = (id, invert) => eyeSvg({ id, invert }, { size: 34, cls: 'eye-thumb' });
-  container.innerHTML = `<div class="eye-picker"><div class="eye-grid" role="group" aria-label="Logo">${EYES.map((e) =>
-    `<button type="button" data-id="${e.id}" aria-pressed="${e.id === pref.id}" title="${e.name}">${thumb(e.id, pref.invert)}<span>${e.name}</span></button>`).join('')}</div>
-    <label class="eye-invert"><input type="checkbox"${pref.invert ? ' checked' : ''}> Invert colours (accent iris, black marks)</label></div>`;
+  const thumb = (id, invert, size = 32) => eyeSvg({ id, invert }, { size, cls: 'eye-thumb' });
+  const name = (id) => (EYES.find((e) => e.id === id) || EYES[0]).name;
+  container.innerHTML = `<div class="eye-picker"><details class="eye-drop">
+      <summary title="Logo: ${name(pref.id)}" aria-label="Logo: ${name(pref.id)}">${thumb(pref.id, pref.invert, 28)}</summary>
+      <div class="eye-grid" role="group" aria-label="Logo">${EYES.map((e) =>
+        `<button type="button" data-id="${e.id}" aria-pressed="${e.id === pref.id}" title="${e.name}" aria-label="${e.name}">${thumb(e.id, pref.invert)}</button>`).join('')}</div>
+    </details>
+    <label class="eye-invert"><input type="checkbox"${pref.invert ? ' checked' : ''}> Invert colours</label></div>`;
   // Updated in place, never rebuilt: a menu that closes on "click outside"
   // would take a clicked-then-removed button for an outside click.
+  const drop = container.querySelector('details');
+  const summary = drop.firstElementChild;
   const buttons = [...container.querySelectorAll('[data-id]')];
   let shown = pref.invert;
   const sync = () => {
     if (!container.isConnected) return removeEventListener('eyechange', sync); // the menu was closed
     const p = getEye();
+    summary.firstElementChild.outerHTML = thumb(p.id, p.invert, 28);
+    summary.title = `Logo: ${name(p.id)}`;
+    summary.setAttribute('aria-label', summary.title);
     for (const b of buttons) {
       b.setAttribute('aria-pressed', String(b.dataset.id === p.id));
       // thumbnails redrawn only when the colours flip, never under a click on an eye
@@ -130,8 +147,14 @@ export function eyePicker(container) {
     shown = p.invert;
     container.querySelector('input').checked = p.invert;
   };
-  for (const b of buttons) b.onclick = () => setEye({ id: b.dataset.id });
+  for (const b of buttons) b.onclick = () => { setEye({ id: b.dataset.id }); drop.open = false; };
   container.querySelector('input').onchange = (ev) => setEye({ invert: ev.target.checked });
+  // a click anywhere else folds the list away
+  const away = (ev) => {
+    if (!container.isConnected) return document.removeEventListener('click', away);
+    if (drop.open && !drop.contains(ev.target)) drop.open = false;
+  };
+  document.addEventListener('click', away);
   addEventListener('eyechange', sync);
   return container;
 }
