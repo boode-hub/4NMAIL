@@ -4,7 +4,7 @@
 import "./lightning.js";
 import { parseHeaders } from "./parse-headers.js";
 import { applyAccent, loadAccent, saveAccent, DEFAULT_ACCENT } from "./theme.js";
-import { mountEyes } from "./eyes.js";
+import { mountEyes, registerAccent } from "./eyes.js";
 import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
@@ -156,6 +156,12 @@ async function cachedLookup(key, fn) {
 // Apply the saved theme colour before anything renders.
 applyAccent(loadAccent());
 mountEyes();
+// The logo's five-click popup also sets the theme colour.
+registerAccent({
+  def: DEFAULT_ACCENT,
+  get: loadAccent,
+  set: (hex) => { applyAccent(hex); saveAccent(hex); },
+});
 
 // The analyst's own domains, protected against lookalikes (optional).
 try {
@@ -756,6 +762,7 @@ function setupThemePicker() {
     if (accentValue) accentValue.textContent = hex;
   };
   show(loadAccent());
+  addEventListener("accentchange", (e) => show(e.detail));
   accentColor.addEventListener("input", () => {
     show(applyAccent(accentColor.value));
     saveAccent(accentColor.value);

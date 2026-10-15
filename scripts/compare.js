@@ -6,9 +6,10 @@
 // as on the main page — the same parsers, the same scoring.
 
 import "./lightning.js";
-import { mountEyes } from "./eyes.js";
+import { mountEyes, registerAccent } from "./eyes.js";
 
 mountEyes();
+registerAccent({ def: DEFAULT_ACCENT, get: loadAccent, set: (hex) => { applyAccent(hex); saveAccent(hex); } });
 import { parseHeaders } from "./parse-headers.js";
 import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
@@ -22,7 +23,7 @@ import { analyzeUnicode } from "./analyze-unicode.js";
 import { calculateScore } from "./score.js";
 import { sha256Bytes, md5Bytes } from "./hash-utils.js";
 import { buildComparison, comparisonCsv, comparisonJson } from "./compare-model.js";
-import { applyAccent, loadAccent } from "./theme.js";
+import { applyAccent, loadAccent, saveAccent, DEFAULT_ACCENT } from "./theme.js";
 
 // This page is no more meant to be framed than the main one.
 if (window.top !== window.self) {

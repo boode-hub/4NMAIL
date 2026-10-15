@@ -111,7 +111,15 @@ const CSS = `.eye-picker{display:flex;flex-wrap:wrap;align-items:center;gap:10px
 .eye-pop .eye-drop>summary{display:none}
 .eye-pop .eye-grid{margin-top:0}
 @keyframes eye-pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
-[data-eye-egg]{user-select:none;-webkit-user-select:none}`;
+[data-eye-egg]{user-select:none;-webkit-user-select:none}
+.eye-theme{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#30363d);
+  color:var(--text-secondary,#8b949e);font:500 12.5px var(--sans,'Inter',sans-serif)}
+.eye-theme label{flex:1;margin:0;font:inherit;color:inherit}
+/* by id: some apps style every text-like input with long :not() chains */
+#eye-theme-colour{appearance:auto;width:36px;height:26px;min-width:0;padding:0;margin:0;cursor:pointer;
+  background:none;border:1px solid var(--border,#30363d);border-radius:4px;box-shadow:none}
+.eye-theme.eye-theme button{padding:4px 10px;margin:0;cursor:pointer;background:var(--bg-surface,#30363d);color:var(--text,#e6edf3);
+  border:1px solid var(--border,#30363d);border-radius:6px;font:inherit;width:auto}`;
 
 /**
  * A dropdown of every eye (no names on show: each has its name as a tooltip
@@ -154,10 +162,10 @@ export function eyePicker(container, { open = false } = {}) {
       if (p.invert !== shown) b.firstElementChild.outerHTML = thumb(b.dataset.id, p.invert);
     }
     shown = p.invert;
-    container.querySelector('input').checked = p.invert;
+    container.querySelector('.eye-invert input').checked = p.invert;
   };
   for (const b of buttons) b.onclick = () => { setEye({ id: b.dataset.id }); drop.open = false; };
-  container.querySelector('input').onchange = (ev) => setEye({ invert: ev.target.checked });
+  container.querySelector('.eye-invert input').onchange = (ev) => setEye({ invert: ev.target.checked });
   // a press anywhere else folds the list away (capture phase: an app that
   // stops its own clicks from bubbling cannot keep it open)
   const away = (ev) => {
@@ -182,6 +190,14 @@ function openEgg(anchor) {
   pop.setAttribute('aria-label', 'Logo');
   document.body.append(pop);
   eyePicker(pop, { open: true });
+  const row = document.createElement('div');
+  row.className = 'eye-theme';
+  row.innerHTML = '<label for="eye-theme-colour">Theme colour</label><input id="eye-theme-colour" type="color"><button type="button">Reset</button>';
+  const pick = row.querySelector('input');
+  pick.value = theme.get();
+  pick.oninput = () => setAccent(pick.value);
+  row.querySelector('button').onclick = () => { pick.value = theme.def; setAccent(theme.def); };
+  pop.append(row);
   const r = anchor.getBoundingClientRect();
   // under the logo, but always inside the window (never above its top edge)
   pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
@@ -203,3 +219,47 @@ globalThis.document?.addEventListener('click', (ev) => {
     openEgg(el);
   }
 });
+
+// ---- theme colour -----------------------------------------------------------
+// The popup's colour row drives the app's accent. An app with its own accent
+// setting registers it with registerAccent({ get, set, def }) so both stay in step;
+// otherwise the colour is kept here: localStorage "accent-color", applied as
+// --accent on <html> (the app's CSS derives everything else from it).
+const ACCENT_KEY = 'accent-color';
+const HEX = /^#[0-9a-f]{6}$/i;
+let theme = {
+  def: '#9fef00',
+  get() {
+    try {
+      const v = localStorage.getItem(ACCENT_KEY);
+      if (HEX.test(v || '')) return v.toLowerCase();
+    } catch {
+      // storage blocked
+    }
+    return this.def;
+  },
+  set(hex) {
+    try {
+      if (hex === this.def) localStorage.removeItem(ACCENT_KEY);
+      else localStorage.setItem(ACCENT_KEY, hex);
+    } catch {
+      // storage blocked: the colour still applies for this visit
+    }
+    const st = document.documentElement.style;
+    if (hex === this.def) st.removeProperty('--accent');
+    else st.setProperty('--accent', hex);
+  },
+};
+export function registerAccent(handler) {
+  theme = { ...theme, ...handler };
+}
+export function setAccent(hex) {
+  if (!HEX.test(hex)) return;
+  theme.set(hex.toLowerCase());
+  dispatchEvent(new CustomEvent('accentchange', { detail: hex.toLowerCase() }));
+}
+// A colour saved by the built-in store applies as soon as the page loads.
+if (globalThis.document) {
+  const saved = theme.get();
+  if (saved !== theme.def) document.documentElement.style.setProperty('--accent', saved);
+}
