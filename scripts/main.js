@@ -4,7 +4,7 @@
 import "./lightning.js";
 import { parseHeaders } from "./parse-headers.js";
 import { applyAccent, loadAccent, saveAccent, DEFAULT_ACCENT } from "./theme.js";
-import { mountEyes, eyePicker } from "./eyes.js";
+import { mountEyes } from "./eyes.js";
 import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";
 import { extractIOCs, refreshIOCs } from "./extract-iocs.js";
@@ -749,8 +749,6 @@ async function handleFileUpload(e) {
 
 // Theme colour: live preview while picking, saved on every change.
 function setupThemePicker() {
-  const picker = document.getElementById("eye-picker");
-  if (picker) eyePicker(picker);
   const { accentColor, accentValue, resetAccent } = elements;
   if (!accentColor) return;
   const show = (hex) => {

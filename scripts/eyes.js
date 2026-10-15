@@ -105,23 +105,32 @@ const CSS = `.eye-picker{display:flex;flex-wrap:wrap;align-items:center;gap:10px
 .eye-grid button[aria-pressed=true]{border-color:var(--accent,#9fef00);background:color-mix(in srgb,var(--accent,#9fef00) 10%,transparent)}
 /* doubled class: beats an app's own "form label" / "form input" rules */
 .eye-invert.eye-invert{display:inline-flex;align-items:center;gap:8px;margin:0;cursor:pointer;color:var(--text-secondary,#8b949e);font-size:12.5px;font-weight:500}
-.eye-invert.eye-invert input{appearance:auto;accent-color:var(--accent,#9fef00);width:15px;height:15px;margin:0;padding:0;border:0;background:none;box-shadow:none}`;
+.eye-invert.eye-invert input{appearance:auto;accent-color:var(--accent,#9fef00);width:15px;height:15px;margin:0;padding:0;border:0;background:none;box-shadow:none}
+.eye-pop{position:fixed;z-index:1000;width:min(300px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow:auto;padding:10px;background:var(--bg-elevated,#21262d);
+  border:1px solid var(--accent-border,rgba(159,239,0,.3));border-radius:12px;box-shadow:0 18px 44px rgba(0,0,0,.55);animation:eye-pop .14s ease-out}
+.eye-pop .eye-drop>summary{display:none}
+.eye-pop .eye-grid{margin-top:0}
+@keyframes eye-pop{from{opacity:0;transform:translateY(-4px) scale(.98)}}
+[data-eye-egg]{user-select:none;-webkit-user-select:none}`;
 
 /**
  * A dropdown of every eye (no names on show: each has its name as a tooltip
  * and for screen readers) plus an Invert switch, wired to setEye.
  */
-export function eyePicker(container) {
-  if (!document.getElementById('eye-picker-css')) {
-    const st = document.createElement('style');
-    st.id = 'eye-picker-css';
-    st.textContent = CSS;
-    document.head.append(st);
-  }
+function addCss() {
+  if (document.getElementById('eye-picker-css')) return;
+  const st = document.createElement('style');
+  st.id = 'eye-picker-css';
+  st.textContent = CSS;
+  document.head.append(st);
+}
+
+export function eyePicker(container, { open = false } = {}) {
+  addCss();
   const pref = getEye();
   const thumb = (id, invert, size = 32) => eyeSvg({ id, invert }, { size, cls: 'eye-thumb' });
   const name = (id) => (EYES.find((e) => e.id === id) || EYES[0]).name;
-  container.innerHTML = `<div class="eye-picker"><details class="eye-drop">
+  container.innerHTML = `<div class="eye-picker"><details class="eye-drop"${open ? ' open' : ''}>
       <summary title="Logo: ${name(pref.id)}" aria-label="Logo: ${name(pref.id)}">${thumb(pref.id, pref.invert, 28)}</summary>
       <div class="eye-grid" role="group" aria-label="Logo">${EYES.map((e) =>
         `<button type="button" data-id="${e.id}" aria-pressed="${e.id === pref.id}" title="${e.name}" aria-label="${e.name}">${thumb(e.id, pref.invert)}</button>`).join('')}</div>
@@ -149,12 +158,48 @@ export function eyePicker(container) {
   };
   for (const b of buttons) b.onclick = () => { setEye({ id: b.dataset.id }); drop.open = false; };
   container.querySelector('input').onchange = (ev) => setEye({ invert: ev.target.checked });
-  // a click anywhere else folds the list away
+  // a press anywhere else folds the list away (capture phase: an app that
+  // stops its own clicks from bubbling cannot keep it open)
   const away = (ev) => {
-    if (!container.isConnected) return document.removeEventListener('click', away);
-    if (drop.open && !drop.contains(ev.target)) drop.open = false;
+    if (!container.isConnected) return document.removeEventListener('pointerdown', away, true);
+    if (drop.open && !container.contains(ev.target)) drop.open = false;
   };
-  document.addEventListener('click', away);
+  document.addEventListener('pointerdown', away, true);
   addEventListener('eyechange', sync);
   return container;
 }
+
+// ---- Easter egg -----------------------------------------------------------
+// The picker is not in any menu: click the logo (any element marked
+// data-eye-egg) five times within 1.5 s and it opens beside it. A pick, a
+// click elsewhere or Escape closes it.
+let taps = [];
+function openEgg(anchor) {
+  document.querySelector('.eye-pop')?.remove();
+  const pop = document.createElement('div');
+  pop.className = 'eye-pop';
+  pop.setAttribute('role', 'dialog');
+  pop.setAttribute('aria-label', 'Logo');
+  document.body.append(pop);
+  eyePicker(pop, { open: true });
+  const r = anchor.getBoundingClientRect();
+  // under the logo, but always inside the window (never above its top edge)
+  pop.style.left = `${Math.max(8, Math.min(r.left, innerWidth - pop.offsetWidth - 8))}px`;
+  pop.style.top = `${Math.max(8, Math.min(r.bottom + 8, innerHeight - pop.offsetHeight - 8))}px`;
+  const close = () => { pop.remove(); removeEventListener('keydown', esc); };
+  const esc = (e) => { if (e.key === 'Escape') close(); };
+  pop.querySelector('details').addEventListener('toggle', (e) => { if (!e.target.open) close(); });
+  addEventListener('keydown', esc);
+}
+if (globalThis.document) addCss();
+globalThis.document?.addEventListener('click', (ev) => {
+  const el = ev.target.closest?.('[data-eye-egg]');
+  if (!el) return;
+  const now = performance.now();
+  taps = taps.filter((t) => now - t < 1500);
+  taps.push(now);
+  if (taps.length >= 5) {
+    taps = [];
+    openEgg(el);
+  }
+});
