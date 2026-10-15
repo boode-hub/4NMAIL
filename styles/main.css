@@ -256,10 +256,13 @@ body {
   }
 }
 /* The logo takes the place of the old ">" prompt mark. */
+.logo-slot {
+  display: flex;
+}
 .app-logo {
   color: var(--accent);
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   flex-shrink: 0;
   /* One turn every 14 seconds: noticeable if you watch it, invisible if
      you are reading a verdict next to it. */

@@ -6,6 +6,9 @@
 // as on the main page — the same parsers, the same scoring.
 
 import "./lightning.js";
+import { mountEyes } from "./eyes.js";
+
+mountEyes();
 import { parseHeaders } from "./parse-headers.js";
 import { parseAuth } from "./parse-auth.js";
 import { parseBody } from "./parse-body.js";

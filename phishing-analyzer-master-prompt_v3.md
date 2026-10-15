@@ -1176,7 +1176,7 @@ Copy buttons show "Copied!" or "Copy failed" for 2 s.
 The Sharingan Tray Monitor's three-tomoe eye (tomoe traced from the reference artwork), in the accent on a black iris. Canonical copy: `4N-HQ/style/brand/`.
 
 ```svg
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-5 -5 138 138">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 2 124 124">
   <!-- The three-tomoe Sharingan from the Sharingan Tray Monitor, in the 4N accent. -->
   <circle cx="64" cy="64" r="58" fill="#000" stroke="#9fef00" stroke-width="4.5"/>
   <circle cx="64" cy="64" r="35" fill="none" stroke="#9fef00" stroke-width="3.2"/>

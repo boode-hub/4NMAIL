@@ -9,6 +9,7 @@
 // and an analyst needs to paste them into lookups exactly as they are.
 
 import { revealControls } from "./analyze-unicode.js";
+import { eyeSvg, getEye } from "./eyes.js";
 
 // ===== Defanging =====
 
@@ -218,8 +219,8 @@ function sub(title, count, body) {
 
 const EMPTY = '<p class="empty">None found.</p>';
 
-// The app's three-tomoe Sharingan mark, inlined so the file needs nothing external.
-const LOGO = `<svg class="logo" viewBox="-5 -5 138 138" aria-hidden="true"><circle cx="64" cy="64" r="58" fill="#000" stroke="#9fef00" stroke-width="4.5"/><circle cx="64" cy="64" r="35" fill="none" stroke="#9fef00" stroke-width="3.2"/><g id="lg-t" fill="#9fef00"><circle cx="64" cy="29" r="9.14"/><path d="M54.7 27.3 54.7 26.8 54.8 26.3 54.9 25.8 55 25.3 55.1 24.8 55.2 24.2 55.4 23.7 55.6 23.2 55.8 22.7 56 22.2 56.3 21.7 56.6 21.2 56.9 20.7 57.3 20.3 57.7 19.8 58.1 19.3 58.5 18.8 58.9 18.3 59.4 17.9 59.9 17.4 60.4 17 61 16.5 61.6 16.2 62.3 15.8 62.9 15.6 63.6 15.3 64.4 15 65.1 14.8 65.9 14.6 66.7 14.6 67.5 14.6 68.3 14.6 69.1 14.5 70 14.6 70.8 14.7 71.7 14.9 72.5 15.1 73.3 15.4 74.2 15.7 75 16.1 75.8 16.6 76.5 17.1 77.4 17.6 78.2 18.1 79 18.7 79.7 19.4 80.5 20.1 81 20.9 81 20.9 79.5 20.6 78.3 20.2 77.2 20 76 19.8 75 19.6 73.9 19.6 72.9 19.6 71.9 19.7 70.9 20 69.9 20.4 69.1 20.7 68.4 21 67.9 20.8 67.5 20.6 67 20.4 66.6 20.2 66.1 20.1 65.7 20 65.2 19.9 64.7 19.9 64.2 19.9 63.8 19.9 63.3 19.9 62.8 19.9 62.3 20 61.9 20.1 61.4 20.2 61 20.4 60.5 20.6 60.1 20.8 59.6 21 59.2 21.2 58.8 21.5 58.4 21.8 58.1 22.1 57.7 22.4 57.4 22.7 57 23.1 56.8 23.4 56.5 23.8 56.2 24.2 56 24.6 55.8 25.1 55.6 25.5 55.4 25.9 55.2 26.4 55.1 26.9 55 27.3Z"/></g><use href="#lg-t" transform="rotate(120 64 64)"/><use href="#lg-t" transform="rotate(240 64 64)"/><circle cx="64" cy="64" r="14" fill="#9fef00"/></svg>`;
+// The eye chosen in Settings, inlined so the file needs nothing external.
+const reportLogo = () => eyeSvg(getEye(), { cls: "logo", color: "#9fef00" });
 
 /**
  * @param {Object} analysis - the app's current analysis
@@ -582,7 +583,7 @@ export function buildHtmlReport(analysis, { lookups = new Map(), local = new Map
 <body>
 <div class="wrap">
   <header class="top">
-    <div class="brand">${LOGO}<div><div class="brand-name">4NMAIL</div><div class="brand-sub">IOC report</div></div></div>
+    <div class="brand">${reportLogo()}<div><div class="brand-name">4NMAIL</div><div class="brand-sub">IOC report</div></div></div>
     <div class="generated"><span class="eyebrow">Generated</span>${esc(formatTimestamp(now))}</div>
   </header>
   ${hero}

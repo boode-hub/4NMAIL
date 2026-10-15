@@ -44,7 +44,7 @@
 
       <!-- Header -->
       <header class="app-header">
-        <h1 aria-label="4NMAIL"><svg class="app-logo" viewBox="-5 -5 138 138" width="30" height="30" aria-hidden="true">
+        <h1 aria-label="4NMAIL"><span class="logo-slot" data-eye="34"><svg class="app-logo" viewBox="2 2 124 124" width="30" height="30" aria-hidden="true">
             <!-- favicon.svg inlined so the logo follows the theme colour -->
             <circle cx="64" cy="64" r="58" fill="#000" stroke="currentColor" stroke-width="4.5"/>
             <circle cx="64" cy="64" r="35" fill="none" stroke="currentColor" stroke-width="3.2"/>
@@ -55,7 +55,7 @@
             <use href="#logo-t" transform="rotate(120 64 64)"/>
             <use href="#logo-t" transform="rotate(240 64 64)"/>
             <circle cx="64" cy="64" r="14" fill="currentColor"/>
-          </svg><span class="wordmark" aria-hidden="true"><span class="four">4</span><span class="rest">NM<span class="glitch-a" data-glyph="@">A</span>IL</span></span></h1>
+          </svg></span><span class="wordmark" aria-hidden="true"><span class="four">4</span><span class="rest">NM<span class="glitch-a" data-glyph="@">A</span>IL</span></span></h1>
         <button id="settings-btn" class="btn btn-secondary" title="Settings" aria-label="Settings">
           <svg
             width="16"
@@ -288,6 +288,12 @@
                 <button id="reset-accent" class="btn btn-secondary" type="button">Reset</button>
               </div>
               <small>Changes the green accent only. Applied instantly and saved in this browser.</small>
+            </div>
+
+            <div class="setting-field">
+              <label>Logo</label>
+              <div id="eye-picker"></div>
+              <small>Any Sharingan or Mangekyou from the Sharingan Tray Monitor. Applied instantly and saved in this browser.</small>
             </div>
 
             <div class="setting-actions">
