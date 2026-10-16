@@ -156,7 +156,7 @@ async function cachedLookup(key, fn) {
 // Apply the saved theme colour before anything renders.
 applyAccent(loadAccent());
 mountEyes();
-// The logo's five-click popup also sets the theme colour.
+// The theme colour is set from the logo's five-click popup (no Settings field).
 registerAccent({
   def: DEFAULT_ACCENT,
   get: loadAccent,
@@ -209,9 +209,6 @@ function queryElements() {
     proxyField: "proxy-field",
     rememberKeys: "remember-keys",
     ownDomains: "own-domains",
-    accentColor: "accent-color",
-    accentValue: "accent-value",
-    resetAccent: "reset-accent",
   };
   for (const [key, id] of Object.entries(ids)) {
     elements[key] = document.getElementById(id);
@@ -305,7 +302,6 @@ function init() {
   });
 
   renderApiAvailability();
-  setupThemePicker();
 
   elements.exportDownload?.addEventListener("click", handleExportDownload);
   for (const box of [elements.exportHtml, elements.exportCsv, elements.exportJson, elements.exportStix, elements.exportMisp]) {
@@ -751,26 +747,6 @@ async function handleFileUpload(e) {
       ? " (converted from Outlook .msg)"
       : "";
   showStatus(`Loaded: ${email.name}${how}`, "success");
-}
-
-// Theme colour: live preview while picking, saved on every change.
-function setupThemePicker() {
-  const { accentColor, accentValue, resetAccent } = elements;
-  if (!accentColor) return;
-  const show = (hex) => {
-    accentColor.value = hex;
-    if (accentValue) accentValue.textContent = hex;
-  };
-  show(loadAccent());
-  addEventListener("accentchange", (e) => show(e.detail));
-  accentColor.addEventListener("input", () => {
-    show(applyAccent(accentColor.value));
-    saveAccent(accentColor.value);
-  });
-  resetAccent?.addEventListener("click", () => {
-    show(applyAccent(DEFAULT_ACCENT));
-    saveAccent(DEFAULT_ACCENT);
-  });
 }
 
 /**
