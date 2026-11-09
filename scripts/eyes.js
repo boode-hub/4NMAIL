@@ -116,7 +116,7 @@ const CSS = `.eye-picker{display:flex;flex-wrap:wrap;align-items:center;gap:10px
    The pivot is set on each eye (transform-origin in user units): with transform-box
    view-box, a percentage is measured from 0,0, not from the viewBox corner. */
 .eye-spin{transform-box:view-box;animation:eye-spin var(--eye-spin,14s) linear infinite}
-@keyframes eye-spin{to{transform:rotate(360deg)}}
+@keyframes eye-spin{to{transform:rotate(-360deg)}}
 .eye-thumb .eye-spin{animation:none}
 @media (prefers-reduced-motion:reduce){.eye-spin{animation:none}}
 .eye-theme{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border,#30363d);
